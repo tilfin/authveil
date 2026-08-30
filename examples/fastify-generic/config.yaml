@@ -1,0 +1,17 @@
+server: { host: 127.0.0.1, port: 3083 }
+upstream: { url: http://127.0.0.1:8083 }
+auth:
+  mode: mock
+  mockUser: developer
+mockUsers:
+  - id: developer
+    subject: local-developer-001
+    claims: { groups: [developers, reviewers], department: engineering }
+identityProxy:
+  type: generic
+  hostHeader: preserve
+  headers:
+    X-User-Id: { claim: sub }
+    X-User-Roles: { claim: groups, transform: join, separator: ";" }
+    X-User-Department: { claim: department }
+keys: { privateKeyFile: .authveil/private-key.pem }

@@ -1,0 +1,17 @@
+server: { host: 127.0.0.1, port: 3080 }
+upstream: { url: http://127.0.0.1:8080 }
+auth:
+  mode: mock
+  mockUser: developer
+mockUsers:
+  - id: developer
+    subject: local-developer-001
+    email: developer@example.com
+    name: Local Developer
+    claims: { groups: [developers] }
+identityProxy:
+  type: alb
+  preserveHostHeader: false
+  issuer: https://authveil.local
+  clientId: fastify-example
+keys: { privateKeyFile: .authveil/private-key.pem }

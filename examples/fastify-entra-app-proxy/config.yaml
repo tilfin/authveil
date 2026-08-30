@@ -1,0 +1,20 @@
+server: { host: 127.0.0.1, port: 3082 }
+upstream: { url: http://127.0.0.1:8082 }
+auth:
+  mode: mock
+  mockUser: developer
+mockUsers:
+  - id: developer
+    subject: local-developer-001
+    email: developer@example.com
+    name: Local Developer
+    claims: { groups: [developers] }
+identityProxy:
+  type: entra-app-proxy
+  translateUrlsInHeaders: true
+  headers:
+    X-Remote-User-Id: { claim: sub }
+    X-Remote-User-Email: { claim: email }
+    X-Remote-User-Name: { claim: name }
+    X-Remote-User-Groups: { claim: groups, transform: join, separator: "," }
+keys: { privateKeyFile: .authveil/private-key.pem }

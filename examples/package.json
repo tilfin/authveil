@@ -1,0 +1,17 @@
+{
+  "name": "authveil-fastify-examples",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test fastify-*/test.js",
+    "alb": "node fastify-alb/server.js",
+    "iap": "node fastify-iap/server.js",
+    "entra": "node fastify-entra-app-proxy/server.js",
+    "generic": "node fastify-generic/server.js"
+  },
+  "dependencies": {
+    "authveil": "file:..",
+    "fastify": "^5.11.0",
+    "jose": "^6.1.0"
+  }
+}

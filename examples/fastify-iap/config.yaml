@@ -1,0 +1,15 @@
+server: { host: 127.0.0.1, port: 3081 }
+upstream: { url: http://127.0.0.1:8081 }
+auth:
+  mode: mock
+  mockUser: developer
+mockUsers:
+  - id: developer
+    subject: local-developer-001
+    email: developer@example.com
+    name: Local Developer
+    claims: { groups: [developers] }
+identityProxy:
+  type: iap
+  audience: /projects/123/global/backendServices/456
+keys: { privateKeyFile: .authveil/private-key.pem }

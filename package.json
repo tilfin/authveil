@@ -1,0 +1,55 @@
+{
+  "name": "authveil",
+  "version": "0.1.0",
+  "description": "Development-only reverse proxy that emulates cloud identity proxies locally.",
+  "license": "Apache-2.0",
+  "author": "Toshimitsu Takahashi",
+  "bin": {
+    "authveil": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testkit": {
+      "types": "./dist/testkit.d.ts",
+      "import": "./dist/testkit.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit && pnpm lint && pnpm format:check",
+    "lint": "oxlint --deny-warnings src test",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "httpxy": "^0.5.5",
+    "jose": "^6.1.0",
+    "openid-client": "^6.8.1",
+    "pino": "^9.9.0",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.75.0",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4",
+    "ws": "^8.18.3"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

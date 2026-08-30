@@ -1,0 +1,50 @@
+server:
+  host: 127.0.0.1
+  port: 3080
+  controlPrefix: /_authveil
+
+upstream:
+  url: http://127.0.0.1:8080
+  requestTimeout: 0
+
+auth:
+  mode: mock
+  # Set mockUser to inject this identity without logging in.
+  mockUser: admin
+  sessionTtl: 8h
+  cookie:
+    sameSite: lax
+    secure: false
+
+mockUsers:
+  - id: admin
+    subject: local-admin-001
+    email: admin@example.com
+    name: Local Admin
+    claims:
+      groups: [administrators, developers]
+      department: engineering
+  - id: viewer
+    subject: local-viewer-001
+    email: viewer@example.com
+    name: Local Viewer
+    claims:
+      groups: [viewers]
+
+identityProxy:
+  type: alb
+  preserveHostHeader: false
+  albArn: arn:aws:elasticloadbalancing:ap-northeast-1:000000000000:loadbalancer/app/authveil/local
+  issuer: https://issuer.example.com
+  clientId: local-client-id
+  tokenTtl: 5m
+
+keys:
+  algorithm: ES256
+  # Existing PEM or JWK private key material can instead be set with privateKey.
+  # privateKey and privateKeyFile cannot be used together.
+  privateKeyFile: .authveil/private-key.pem
+
+logging:
+  level: info
+  format: json
