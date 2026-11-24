@@ -109,7 +109,7 @@ docker run --rm \
   keys show --config /config/authveil.config.yaml
 ```
 
-最初のコマンドではホストユーザーの UID / GID を使うため、生成した鍵をそのユーザーが引き続き更新できます。`privateKeyFile: .authveil/private-key.pem` の場合、ディレクトリ全体を `/config` に mount すると `/config/authveil.config.yaml` からの相対パスで鍵を解決できます。
+最初のコマンドではホストユーザーの UID / GID を使うため、生成した鍵をそのユーザーが引き続き更新できます。`--out` を省略すると、`keys generate` は作業ディレクトリ配下の `.authveil/private-key.pem` に書き込み、必要ならディレクトリも作成します。既存のファイルは `--force` を指定しない限り上書きしません。`validate` は既存の `privateKeyFile` を検査しますが、存在しないファイルは作成しません。`privateKeyFile: .authveil/private-key.pem` の場合、ディレクトリ全体を `/config` に mount すると `/config/authveil.config.yaml` からの相対パスで鍵を解決できます。
 
 公開 JWKS は `/_authveil/.well-known/jwks.json` で取得できます。
 

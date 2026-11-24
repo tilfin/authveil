@@ -109,7 +109,7 @@ docker run --rm \
   keys show --config /config/authveil.config.yaml
 ```
 
-The first command uses the host user's UID and GID so the generated key remains writable by that user. With `privateKeyFile: .authveil/private-key.pem`, mounting the whole directory at `/config` lets AuthVeil resolve the key relative to `/config/authveil.config.yaml`.
+The first command uses the host user's UID and GID so the generated key remains writable by that user. Without `--out`, `keys generate` writes `.authveil/private-key.pem` under the working directory, creating the directory if needed; it refuses to replace an existing file unless `--force` is given. `validate` checks an existing `privateKeyFile` but does not create a missing one. With `privateKeyFile: .authveil/private-key.pem`, mounting the whole directory at `/config` lets AuthVeil resolve the key relative to `/config/authveil.config.yaml`.
 
 The public JWKS is served at `/_authveil/.well-known/jwks.json`.
 
