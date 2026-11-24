@@ -177,11 +177,9 @@ export class AuthVeilServer implements AuthVeil {
 
     try {
       const url = new URL(request.url ?? "/", "http://authveil.local");
-      if (
-        url.pathname === this.config.server.controlPrefix ||
-        url.pathname.startsWith(`${this.config.server.controlPrefix}/`)
-      ) {
-        return this.#control.handle(request, response, url, requestId);
+      if (this.#isControlPath(url)) {
+        await this.#control.handle(request, response, url, requestId);
+        return;
       }
 
       if (
@@ -350,16 +348,21 @@ export class AuthVeilServer implements AuthVeil {
     socket: import("node:stream").Duplex,
     head: Buffer,
   ): Promise<void> {
-    const session = this.#session(request);
-    const identity = this.#fixedMockIdentity ?? session?.identity;
-    if (!identity) {
-      socket.end(
-        `HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nX-AuthVeil-Login: ${this.config.server.controlPrefix}/login\r\n${this.config.identityProxy.type === "iap" ? "X-Goog-IAP-Generated-Response: true\r\n" : ""}Content-Length: 0\r\n\r\n`,
-      );
-      return;
-    }
-
     try {
+      if (this.#isControlPath(new URL(request.url ?? "/", "http://authveil.local"))) {
+        socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
+
+      const session = this.#session(request);
+      const identity = this.#fixedMockIdentity ?? session?.identity;
+      if (!identity) {
+        socket.end(
+          `HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nX-AuthVeil-Login: ${this.config.server.controlPrefix}/login\r\n${this.config.identityProxy.type === "iap" ? "X-Goog-IAP-Generated-Response: true\r\n" : ""}Content-Length: 0\r\n\r\n`,
+        );
+        return;
+      }
+
       const requestId = randomUUID();
       const generated = await this.#identityHeaders(
         identity,
@@ -385,6 +388,11 @@ export class AuthVeilServer implements AuthVeil {
     } catch {
       socket.end("HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n");
     }
+  }
+
+  #isControlPath(url: URL): boolean {
+    const prefix = this.config.server.controlPrefix;
+    return url.pathname === prefix || url.pathname.startsWith(`${prefix}/`);
   }
 
   #session(request: IncomingMessage) {
