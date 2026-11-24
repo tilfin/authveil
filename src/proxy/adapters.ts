@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { duration } from "../config/index.js";
 import { claim } from "../identity/identity.js";
+import { TokenCache } from "./token-cache.js";
 import type {
   AdapterContext,
   HeaderMapping,
@@ -28,24 +28,9 @@ function standardClaims(identity: ProxyIdentity): Record<string, unknown> {
   };
 }
 
-class TokenCache {
-  readonly #items = new Map<string, { token: string; until: number }>();
-  async get(key: string, until: number, create: () => Promise<string>): Promise<string> {
-    const found = this.#items.get(key);
-    if (found && found.until > Date.now()) return found.token;
-    const token = await create();
-    this.#items.set(key, { token, until: Math.min(until - 30_000, Date.now() + 60_000) });
-    return token;
-  }
-}
-const cache = new TokenCache();
-
-function fingerprint(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("base64url");
-}
-
 class AlbAdapter implements IdentityProxyAdapter {
   readonly type = "alb" as const;
+  readonly #cache = new TokenCache();
   constructor(private readonly config: Extract<IdentityProxyConfig, { type: "alb" }>) {}
   reservedHeaderNames() {
     return BUILTIN_RESERVED_HEADERS;
@@ -65,8 +50,11 @@ class AlbAdapter implements IdentityProxyAdapter {
       client: this.config.clientId ?? "authveil",
       exp,
     };
-    const token = await cache.get(fingerprint([identity, header, key.keyId]), exp * 1000, () =>
-      key.sign(standardClaims(identity), header),
+    const token = await this.#cache.get(
+      ["data", identity, this.config, key.keyId],
+      context.now.getTime(),
+      exp * 1000,
+      () => key.sign(standardClaims(identity), header),
     );
     const accessTokenPayload = {
       ...standardClaims(identity),
@@ -75,8 +63,9 @@ class AlbAdapter implements IdentityProxyAdapter {
       iat: now,
       exp,
     };
-    const accessToken = await cache.get(
-      fingerprint([accessTokenPayload, key.keyId]),
+    const accessToken = await this.#cache.get(
+      ["access", identity, this.config, key.keyId],
+      context.now.getTime(),
       exp * 1000,
       () => key.sign(accessTokenPayload),
     );
@@ -90,6 +79,7 @@ class AlbAdapter implements IdentityProxyAdapter {
 
 class IapAdapter implements IdentityProxyAdapter {
   readonly type = "iap" as const;
+  readonly #cache = new TokenCache();
   constructor(private readonly config: Extract<IdentityProxyConfig, { type: "iap" }>) {}
   reservedHeaderNames() {
     return BUILTIN_RESERVED_HEADERS;
@@ -118,8 +108,11 @@ class IapAdapter implements IdentityProxyAdapter {
       iat,
       exp,
     };
-    let token = await cache.get(fingerprint([payload, key.keyId]), exp * 1000, () =>
-      key.sign(payload),
+    let token = await this.#cache.get(
+      [identity, this.config, key.keyId, testType ?? "NOT_SET"],
+      context.now.getTime(),
+      exp * 1000,
+      () => key.sign(payload),
     );
     if (testType === "SIGNATURE") token = invalidateSignature(token);
     const namespace = this.config.identityNamespace ?? "accounts.google.com";

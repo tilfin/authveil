@@ -39,7 +39,8 @@ export class ControlRoutes {
       return json(response, 200, await keys.publicJwks());
     }
     if (request.method === "GET" && path.startsWith("/keys/")) {
-      const pem = await keys.publicPem(decodeURIComponent(path.slice(6)));
+      const keyId = decodePathSegment(path.slice(6));
+      const pem = keyId === undefined ? undefined : await keys.publicPem(keyId);
       if (!pem)
         return sendError(
           request,
@@ -178,5 +179,13 @@ export class ControlRoutes {
   private cookie(id: string, maxAge = this.dependencies.config.auth.sessionTtl): string {
     const { auth } = this.dependencies.config;
     return sessionCookie(auth.cookie.name, id, { ...auth.cookie, maxAge });
+  }
+}
+
+function decodePathSegment(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
   }
 }
