@@ -4,13 +4,15 @@
 
 These runnable upstream applications show how to consume each AuthVeil profile. Every server exposes `GET /user` and must be reached through AuthVeil.
 
-From the repository root, build AuthVeil and install the example dependencies:
+The examples are part of the pnpm workspace and link to the local AuthVeil package. From the repository root, install the dependencies, build AuthVeil, and enter the examples directory:
 
 ```bash
+pnpm install
 pnpm build
 cd examples
-pnpm install
 ```
+
+Run `pnpm test` there to check every example against a freshly started AuthVeil. CI runs the same tests.
 
 Run the application and its matching proxy in separate terminals:
 

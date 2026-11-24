@@ -10,7 +10,7 @@
     "generic": "node fastify-generic/server.js"
   },
   "dependencies": {
-    "authveil": "file:..",
+    "authveil": "workspace:*",
     "fastify": "^5.11.0",
     "jose": "^6.1.0"
   }
