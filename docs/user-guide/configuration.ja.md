@@ -75,6 +75,8 @@ auth:
 
 省略時は `none` です。AuthVeil は組み込みまたは設定済みの Identity Header と、クライアントから届いた forwarding metadata を破棄してから upstream リクエストを組み立てます。
 
+非常に大きな `groups` claim などにより、生成した Identity Header が Node.js の HTTP header 上限（既定は 16 KiB）を超える場合、AuthVeil はリクエストを転送せず `AUTHVEIL_HEADER_TOO_LARGE` とともに `431` を返します。
+
 ## 署名鍵
 
 ALB と IAP のトークンは ES256 を使用します。永続化する場合は、どちらか一方の鍵ソースを指定します。
