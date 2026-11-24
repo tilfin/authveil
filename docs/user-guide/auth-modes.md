@@ -87,7 +87,7 @@ OIDC listens only on `127.0.0.1`, `::1`, or `localhost`. Use mock mode or an HTT
 | ---------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
 | `auth.sessionTtl`      | `8h`              | Lifetime of an in-memory session.                                                                               |
 | `auth.cookie.name`     | profile-dependent | Session cookie name. ALB defaults to `AWSELBAuthSessionCookie-0`; other profiles default to `authveil_session`. |
-| `auth.cookie.sameSite` | `lax`             | `lax`, `strict`, or `none`.                                                                                     |
+| `auth.cookie.sameSite` | `lax`             | `lax`, `strict`, or `none`. `none` requires `auth.cookie.secure: true`.                                         |
 | `auth.cookie.secure`   | `false`           | Adds `Secure`; enable only when the browser uses HTTPS.                                                         |
 
 Sessions are stored in memory and disappear when AuthVeil restarts. Useful control routes under `server.controlPrefix` are:

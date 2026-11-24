@@ -20,4 +20,4 @@ headers:
 | `json`           | 任意の JSON value       | JSON 文字列。                            |
 | `prefix`         | string、number、boolean | `prefix` を先頭に追加。既定は空文字列。  |
 
-claim が存在しないか `null` の場合は header を追加しません。型が一致しない場合は、暗黙に変換せずそのリクエストを失敗させます。Header 名は case-insensitive です。AuthVeil は mapping 対象の受信値を除去してから、信頼する値を追加します。
+claim が存在しないか `null` の場合は header を追加しません。型が一致しない場合は、暗黙に変換せずそのリクエストを失敗させます。Header 名は case-insensitive で、HTTP の field name として有効な文字列が必要です。AuthVeil は mapping 対象の受信値を除去してから、信頼する値を追加します。AuthVeil 自身が設定する header や message の区切りを制御する header（`Host`、`Connection`、`Upgrade`、`Content-Length`、`Transfer-Encoding`、`Forwarded`、`X-Forwarded-*`、`X-AuthVeil-Request-Id`）は mapping できません。

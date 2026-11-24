@@ -87,7 +87,7 @@ OIDC の待受は `127.0.0.1`、`::1`、`localhost` だけです。別のマシ�
 | ---------------------- | -------------- | ------------------------------------------------------------------------------------ |
 | `auth.sessionTtl`      | `8h`           | メモリー内 session の有効期間。                                                      |
 | `auth.cookie.name`     | profile による | session cookie 名。ALB は `AWSELBAuthSessionCookie-0`、その他は `authveil_session`。 |
-| `auth.cookie.sameSite` | `lax`          | `lax`、`strict`、`none` のいずれか。                                                 |
+| `auth.cookie.sameSite` | `lax`          | `lax`、`strict`、`none` のいずれか。`none` には `auth.cookie.secure: true` が必要。  |
 | `auth.cookie.secure`   | `false`        | `Secure` を付与。ブラウザーから HTTPS で接続する場合だけ有効にします。               |
 
 session はメモリーに保存され、AuthVeil の再起動時に失効します。`server.controlPrefix` 配下の主な route は次のとおりです。

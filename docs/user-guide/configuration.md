@@ -59,7 +59,7 @@ auth:
 | `upstream.url`            | HTTP(S) URL | required     | Fixed origin receiving proxied requests.                      |
 | `upstream.requestTimeout` | duration    | `0`          | Upstream timeout; `0` disables it.                            |
 
-A trailing slash is removed from `server.controlPrefix`. OIDC mode only accepts a loopback listen address.
+`server.controlPrefix` must contain at least one path segment, such as `/_authveil`; `/` is rejected. A trailing slash is removed. OIDC mode only accepts a loopback listen address.
 
 ## Select a profile
 
@@ -120,4 +120,4 @@ The public JWKS is served at `/_authveil/.well-known/jwks.json`.
 | `logging.level`  | `trace` \| `debug` \| `info` \| `warn` \| `error` \| `fatal` \| `silent` | `info`  | Minimum log level.                                                        |
 | `logging.format` | `json` \| `pretty`                                                       | `json`  | Accepted output format setting; runtime logging currently uses Pino JSON. |
 
-Durations accept milliseconds as a number, or a string ending in `ms`, `s`, `m`, `h`, or `d`.
+Durations accept milliseconds as a non-negative number, or a whole number followed by `ms`, `s`, `m`, `h`, or `d`, such as `30s`. `auth.sessionTtl` and `identityProxy.tokenTtl` must be greater than zero. Invalid durations are reported when the configuration is loaded.
