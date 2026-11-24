@@ -39,8 +39,8 @@ export function externalOrigin(request: IncomingMessage): ExternalOrigin {
 }
 
 function hostForAlb(origin: ExternalOrigin, listenerPort: number): string {
-  const hostname = origin.hostname.includes(":") ? `[${origin.hostname}]` : origin.hostname;
-  return listenerPort === 80 ? hostname : `${hostname}:${listenerPort}`;
+  // URL.hostname already keeps the brackets around an IPv6 address.
+  return listenerPort === 80 ? origin.hostname : `${origin.hostname}:${listenerPort}`;
 }
 
 function forwardedHeaders(request: IncomingMessage, origin: ExternalOrigin): IncomingHttpHeaders {
@@ -101,7 +101,8 @@ export function forwardHeaders(
   if (config.identityProxy.type === "alb") {
     headers["x-forwarded-for"] = forwarding["x-forwarded-for"];
     headers["x-forwarded-proto"] = forwarding["x-forwarded-proto"];
-    headers["x-forwarded-port"] = forwarding["x-forwarded-port"];
+    // ALB reports the listener port, matching its Host normalization.
+    headers["x-forwarded-port"] = String(listenerPort);
   } else {
     Object.assign(headers, forwarding);
   }
