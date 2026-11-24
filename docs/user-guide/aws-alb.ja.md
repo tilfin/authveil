@@ -40,7 +40,7 @@ identityProxy:
 | `x-amzn-oidc-identity`    | Identity の subject。                                                             |
 | `x-amzn-oidc-accesstoken` | OIDC Provider が返した access token。取得できない場合はローカル生成の ES256 JWT。 |
 
-`x-amzn-oidc-data` の protected header には `alg`、`kid`、`signer`、`iss`、`client`、`exp` が入ります。ALB の request shape に合わせ、`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Port` も再生成します。
+`x-amzn-oidc-data` の protected header には `alg`、`kid`、`signer`、`iss`、`client`、`exp` が入ります。ALB の request shape に合わせ、`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Port` も再生成します。ALB と同様に、`X-Forwarded-Port` は AuthVeil の listen port です。
 
 ## ローカルでの検証
 

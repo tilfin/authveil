@@ -40,7 +40,7 @@ Use values that match the checks in your application. Configure a persistent loc
 | `x-amzn-oidc-identity`    | Identity subject.                                                                   |
 | `x-amzn-oidc-accesstoken` | OIDC provider access token when available; otherwise a locally generated ES256 JWT. |
 
-The `x-amzn-oidc-data` protected header contains `alg`, `kid`, `signer`, `iss`, `client`, and `exp`. AuthVeil also regenerates `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Port` in the ALB request shape.
+The `x-amzn-oidc-data` protected header contains `alg`, `kid`, `signer`, `iss`, `client`, and `exp`. AuthVeil also regenerates `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Port` in the ALB request shape. Like ALB, `X-Forwarded-Port` is the AuthVeil listener port.
 
 ## Verify locally
 
