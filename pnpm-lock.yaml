@@ -52,8 +52,8 @@ importers:
   examples:
     dependencies:
       authveil:
-        specifier: file:..
-        version: 'file:'
+        specifier: workspace:*
+        version: link:..
       fastify:
         specifier: ^5.11.0
         version: 5.11.0
@@ -690,11 +690,6 @@ packages:
   atomic-sleep@1.0.0:
     resolution: {integrity: sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==}
     engines: {node: '>=8.0.0'}
-
-  'authveil@file:':
-    resolution: {directory: '', type: directory}
-    engines: {node: '>=24'}
-    hasBin: true
 
   avvio@9.3.0:
     resolution: {integrity: sha512-g2tQ7LE7oOSqDfwEm3M+ZCMTJc7KiZCdJ4UwyZJb5ckTKyYu50OYmvv0mCFXPuYXoM4zkSt8zM9XQ9KCvxA74A==}
@@ -1471,15 +1466,6 @@ snapshots:
   assertion-error@2.0.1: {}
 
   atomic-sleep@1.0.0: {}
-
-  'authveil@file:':
-    dependencies:
-      ajv: 8.20.0
-      httpxy: 0.5.5
-      jose: 6.2.4
-      openid-client: 6.8.4
-      pino: 9.14.0
-      yaml: 2.9.0
 
   avvio@9.3.0:
     dependencies:
