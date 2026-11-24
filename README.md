@@ -146,7 +146,7 @@ version
 --help
 ```
 
-With no command after the image name, AuthVeil runs `start`.
+With no command after the image name, or when the arguments begin with an option such as `--config`, AuthVeil runs `start`.
 
 ## Documentation
 

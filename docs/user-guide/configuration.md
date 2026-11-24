@@ -34,6 +34,8 @@ Authentication, identity-proxy, and logging settings must be declared in YAML.
 
 Use `${NAME}` in any YAML string to read an environment variable. A name must match `[A-Z_][A-Z0-9_]*`; an unset variable stops configuration loading. This interpolation can reference any environment variable and is separate from the four variables above.
 
+References are expanded after the YAML is parsed, so a value is inserted literally and cannot change the document structure, and references inside comments are ignored. An unquoted value that is exactly one reference, such as `port: ${PORT}`, becomes a number or boolean when the variable holds one; quote it to keep a string.
+
 Pass referenced variables into the container with Docker's `--env` or `--env-file` option; host shell variables are not inherited automatically.
 
 ```yaml
@@ -73,6 +75,8 @@ Set `identityProxy.type` to the environment your application expects:
 
 If omitted, the profile is `none`. AuthVeil discards built-in and configured identity headers plus client-supplied forwarding metadata before constructing the upstream request.
 
+If the generated identity headers are larger than the Node.js HTTP header limit (16 KiB by default), for example because of a very large `groups` claim, AuthVeil answers `431` with `AUTHVEIL_HEADER_TOO_LARGE` instead of forwarding the request.
+
 ## Signing keys
 
 ALB and IAP tokens use ES256. Choose one persistent-key source:
@@ -105,7 +109,7 @@ docker run --rm \
   keys show --config /config/authveil.config.yaml
 ```
 
-The first command uses the host user's UID and GID so the generated key remains writable by that user. With `privateKeyFile: .authveil/private-key.pem`, mounting the whole directory at `/config` lets AuthVeil resolve the key relative to `/config/authveil.config.yaml`.
+The first command uses the host user's UID and GID so the generated key remains writable by that user. Without `--out`, `keys generate` writes `.authveil/private-key.pem` under the working directory, creating the directory if needed; it refuses to replace an existing file unless `--force` is given. `validate` checks an existing `privateKeyFile` but does not create a missing one. With `privateKeyFile: .authveil/private-key.pem`, mounting the whole directory at `/config` lets AuthVeil resolve the key relative to `/config/authveil.config.yaml`.
 
 The public JWKS is served at `/_authveil/.well-known/jwks.json`.
 
