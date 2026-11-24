@@ -66,7 +66,7 @@ auth:
 
 Provider の登録値と `redirectUri` は完全に一致させてください。待受ポートまたは `server.controlPrefix` を変えた場合は URI も変更します。
 
-AuthVeil は Authorization Code Flow with PKCE を使用し、state と nonce を検証します。既定の scope は `openid profile email` です。Provider 固有の scope が必要な場合だけ追加してください。
+AuthVeil は Authorization Code Flow with PKCE を使用し、state と nonce を検証します。既定の scope は `openid profile email` です。Provider 固有の scope が必要な場合だけ追加してください。container 内の Keycloak や Dex などローカルの Provider 向けに `http://` の issuer も指定できます。リモートの Provider には HTTPS を使用してください。
 
 | キー                     | 必須 | 用途                                                     |
 | ------------------------ | ---- | -------------------------------------------------------- |
@@ -77,7 +77,7 @@ AuthVeil は Authorization Code Flow with PKCE を使用し、state と nonce �
 | `auth.oidc.scopes`       | no   | 要求する scope。                                         |
 | `auth.oidc.claimMapping` | no   | subject、email、name の claim を指定する dot-path。      |
 
-mapping しなかった ID token の claim は custom claim として保持されます。`groups` など Provider 固有の claim は正規化しません。
+mapping しなかった ID token の claim は custom claim として保持されます。ただし ID token 自体を表す claim（`iss`、`aud`、`exp`、`iat`、`nbf`、`jti`、`nonce`、`azp`、`at_hash`、`c_hash`、`s_hash`）は除外され、生成する ALB / IAP の token には AuthVeil 自身の値が使われます。`groups` など Provider 固有の claim は正規化しません。
 
 OIDC の待受は `127.0.0.1`、`::1`、`localhost` だけです。別のマシンから確認する場合は mock モード、または HTTPS を終端する開発環境を使用してください。
 
