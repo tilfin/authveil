@@ -34,6 +34,8 @@ Authentication, identity-proxy, and logging settings must be declared in YAML.
 
 Use `${NAME}` in any YAML string to read an environment variable. A name must match `[A-Z_][A-Z0-9_]*`; an unset variable stops configuration loading. This interpolation can reference any environment variable and is separate from the four variables above.
 
+References are expanded after the YAML is parsed, so a value is inserted literally and cannot change the document structure, and references inside comments are ignored. An unquoted value that is exactly one reference, such as `port: ${PORT}`, becomes a number or boolean when the variable holds one; quote it to keep a string.
+
 Pass referenced variables into the container with Docker's `--env` or `--env-file` option; host shell variables are not inherited automatically.
 
 ```yaml

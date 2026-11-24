@@ -281,13 +281,18 @@ export async function loadConfig(
 ): Promise<ResolvedConfig> {
   let raw: unknown;
   try {
-    raw = YAML.parse(expandEnvironment(await readFile(path, "utf8"), env));
+    const document = YAML.parseDocument(await readFile(path, "utf8"));
+    if (document.errors[0]) throw document.errors[0];
+    expandDocument(document, env);
+    raw = document.toJS();
   } catch (error) {
     if (error instanceof ConfigError) throw error;
     throw new ConfigError(
       `Cannot read configuration: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new ConfigError("Configuration must be a mapping");
   const config = raw as AuthVeilOptions;
   const overridden: AuthVeilOptions = {
     ...config,
@@ -310,4 +315,34 @@ export async function loadConfig(
       privateKeyFile: resolve(dirname(path), resolved.keys.privateKeyFile),
     },
   };
+}
+
+/**
+ * Expands `${NAME}` references in parsed scalars, so environment values are
+ * inserted literally and cannot change the YAML structure. References inside
+ * comments are ignored. An unquoted scalar that is exactly one reference, such
+ * as `port: ${PORT}`, keeps YAML's number and boolean typing.
+ */
+function expandDocument(document: YAML.Document, env: NodeJS.ProcessEnv): void {
+  YAML.visit(document, {
+    Scalar(_key, node) {
+      if (typeof node.value !== "string") return;
+      const expanded = expandEnvironment(node.value, env);
+      if (expanded === node.value) return;
+      node.value =
+        node.type === "PLAIN" && /^\$\{[A-Z_][A-Z0-9_]*\}$/.test(node.value)
+          ? plainScalarValue(expanded)
+          : expanded;
+    },
+  });
+}
+
+function plainScalarValue(value: string): string | number | boolean {
+  try {
+    const parsed: unknown = YAML.parse(value);
+    if (typeof parsed === "number" || typeof parsed === "boolean") return parsed;
+  } catch {
+    // Not a scalar YAML value; keep the text.
+  }
+  return value;
 }
