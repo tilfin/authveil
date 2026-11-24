@@ -81,6 +81,11 @@ export class AuthVeilServer implements AuthVeil {
     this.#server.on("clientError", (_error, socket) =>
       socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"),
     );
+    this.#proxyEngine.on("proxyReq", (proxyRequest) => {
+      const timeout = this.config.upstream.requestTimeout;
+      if (timeout > 0)
+        proxyRequest.setTimeout(timeout, () => proxyRequest.destroy(upstreamTimeoutError()));
+    });
     this.#proxyEngine.on("proxyRes", (proxyResponse, request) => {
       const origin = this.#externalOrigins.get(request);
       if (this.config.identityProxy.type === "entra-app-proxy" && origin) {
@@ -322,12 +327,9 @@ export class AuthVeilServer implements AuthVeil {
       await this.#proxyEngine.web(request, response, {
         target,
         changeOrigin: false,
-        proxyTimeout: this.config.upstream.requestTimeout || undefined,
       });
     } catch (error) {
-      const timedOut = ["ETIMEDOUT", "ESOCKETTIMEDOUT"].includes(
-        (error as NodeJS.ErrnoException).code ?? "",
-      );
+      const timedOut = (error as NodeJS.ErrnoException).code === "ETIMEDOUT";
       if (!response.headersSent) {
         sendError(
           request,
@@ -398,4 +400,14 @@ export class AuthVeilServer implements AuthVeil {
       `http://${this.config.server.host}:${this.config.server.port}`
     );
   }
+}
+
+/**
+ * httpxy's own proxyTimeout destroys the request without an error, which is
+ * indistinguishable from a reset connection, so AuthVeil applies the timeout itself.
+ */
+function upstreamTimeoutError(): NodeJS.ErrnoException {
+  const error: NodeJS.ErrnoException = new Error("Upstream request timed out");
+  error.code = "ETIMEDOUT";
+  return error;
 }
