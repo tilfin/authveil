@@ -92,13 +92,13 @@ OIDC の待受は `127.0.0.1`、`::1`、`localhost` だけです。別のマシ�
 
 session はメモリーに保存され、AuthVeil の再起動時に失効します。`server.controlPrefix` 配下の主な route は次のとおりです。
 
-| Route                       | 用途                                                              |
-| --------------------------- | ----------------------------------------------------------------- |
-| `GET /login`                | OIDC login の開始、または mock ユーザーの選択。                   |
-| `GET /me`                   | 現在の Identity と logout 用 CSRF token を返します。              |
-| `POST /logout`              | session を終了。token は `X-AuthVeil-CSRF` で送ります。           |
-| `GET /debug/headers`        | 有効な mock session で、mask 済みの生成予定 Header を表示します。 |
-| `GET /health`, `GET /ready` | process の health と readiness。                                  |
+| Route                       | 用途                                                                                                            |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `GET /login`                | OIDC login の開始、または mock ユーザーの選択。                                                                 |
+| `GET /me`                   | 現在の Identity と logout 用 CSRF token を返します。`auth.mockUser` では token なしで固定 Identity を返します。 |
+| `POST /logout`              | session を終了。token は `X-AuthVeil-CSRF` で送ります。                                                         |
+| `GET /debug/headers`        | 現在の mock Identity について、mask 済みの生成予定 Header を表示します。                                        |
+| `GET /health`, `GET /ready` | process の health と readiness。                                                                                |
 
 ## トラブルシューティング
 

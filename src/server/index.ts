@@ -68,6 +68,7 @@ export class AuthVeilServer implements AuthVeil {
       keys,
       sessions: this.#sessions,
       adapter: this.#adapter,
+      ...(this.#fixedMockIdentity ? { fixedIdentity: this.#fixedMockIdentity } : {}),
       getSession: (request) => this.#session(request),
       oidcBase: () => this.#oidcBase(),
     });
