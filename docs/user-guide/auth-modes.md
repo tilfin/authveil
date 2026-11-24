@@ -92,13 +92,13 @@ OIDC listens only on `127.0.0.1`, `::1`, or `localhost`. Use mock mode or an HTT
 
 Sessions are stored in memory and disappear when AuthVeil restarts. Useful control routes under `server.controlPrefix` are:
 
-| Route                       | Purpose                                                      |
-| --------------------------- | ------------------------------------------------------------ |
-| `GET /login`                | Start OIDC login or choose a mock user.                      |
-| `GET /me`                   | Return the current identity and logout CSRF token.           |
-| `POST /logout`              | End the session; send the token in `X-AuthVeil-CSRF`.        |
-| `GET /debug/headers`        | Preview masked generated headers for an active mock session. |
-| `GET /health`, `GET /ready` | Process health and readiness.                                |
+| Route                       | Purpose                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /login`                | Start OIDC login or choose a mock user.                                                                             |
+| `GET /me`                   | Return the current identity and logout CSRF token. With `auth.mockUser`, return the fixed identity without a token. |
+| `POST /logout`              | End the session; send the token in `X-AuthVeil-CSRF`.                                                               |
+| `GET /debug/headers`        | Preview masked generated headers for the current mock identity.                                                     |
+| `GET /health`, `GET /ready` | Process health and readiness.                                                                                       |
 
 ## Troubleshooting
 
