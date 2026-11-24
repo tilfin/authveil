@@ -31,6 +31,8 @@ await authveil.listen({ port: 3080 });
 
 object の形式は [設定リファレンス](../user-guide/configuration.ja.md) の YAML 設定に対応します。
 
+`close()` は新しい接続の受け付けを止め、処理中のリクエストを最大 2 秒待ちます。その後も残っている SSE や WebSocket などの接続は切断します。`close()` を再度呼び出すと同じ promise を返します。
+
 ## テスト用機能とサンプル
 
 - [Testkit](./testkit.ja.md) — 結合テスト内で AuthVeil と echo upstream を空きポートに起動
