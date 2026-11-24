@@ -166,11 +166,11 @@ AuthVeil の「互換」は3段階に分ける。
 
 ### 6.2 認証モード
 
-| モード   | 説明                                       | v0.1         |
-| -------- | ------------------------------------------ | ------------ |
-| `mock`   | 静的ユーザーまたはユーザー選択UIを利用     | 必須         |
-| `oidc`   | 外部OIDC Providerへログイン                | 必須         |
-| `verify` | 実プロキシの証明を検証し、正規化して再転送 | Experimental |
+| モード   | 説明                                       | v0.1               |
+| -------- | ------------------------------------------ | ------------------ |
+| `mock`   | 静的ユーザーまたはユーザー選択UIを利用     | 必須               |
+| `oidc`   | 外部OIDC Providerへログイン                | 必須               |
+| `verify` | 実プロキシの証明を検証し、正規化して再転送 | 未実装（v0.2候補） |
 
 ### 6.3 出力プロファイル
 
@@ -391,6 +391,8 @@ X-AuthVeil-Login: /_authveil/login
 Content-Length: 0
 ```
 
+`iap` プロファイルでは `X-Goog-IAP-Generated-Response: true` も付与する。control prefix 配下へのUpgradeはupstreamへ転送せず `404` で拒否する。
+
 認証済みの場合：
 
 1. Cookieからセッションを検証する
@@ -418,7 +420,7 @@ export interface ProxyIdentity {
   readonly subject: string;
   readonly email?: string;
   readonly name?: string;
-  readonly claims: Readonly<Record<string, unknown>>;
+  readonly claims: Readonly<Record<string, JsonValue>>;
   readonly source: IdentitySource;
 }
 
@@ -478,6 +480,8 @@ export interface AdapterContext {
   readonly now: Date;
   readonly keyStore: SigningKeyStore;
   readonly requestId: string;
+  /** gcp-iap-mode=SECURE_TOKEN_TEST で再現する検証失敗 */
+  readonly iapSecureTokenTestType?: IapSecureTokenTestType;
 }
 ```
 
@@ -489,7 +493,7 @@ export interface Authenticator {
 }
 
 export type AuthResult =
-  | { authenticated: true; identity: ProxyIdentity; sessionId?: string }
+  | { authenticated: true; identity: ProxyIdentity; sessionId?: string; accessToken?: string }
   | { authenticated: false; reason: "missing" | "expired" | "invalid" };
 ```
 
@@ -524,6 +528,8 @@ x-amzn-oidc-accesstoken: <IdP access token or AuthVeil-signed local access token
 ```
 
 `x-amzn-oidc-accesstoken` は常に付与する。`oidc` モードでIdPからaccess tokenを取得した場合はその値を使用し、`mock` モードではAuthVeilの署名鍵でローカルaccess tokenを生成する。
+
+`alb` プロファイルではセッションCookie名の既定値をALBの最初のshardと同じ `AWSELBAuthSessionCookie-0` とする。Hostは `preserveHostHeader: false`（既定）でlisten portを付けたAuthVeilのhostへ正規化し、`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Port` をALBの形式で再生成する。
 
 #### JOSE header
 
@@ -608,6 +614,16 @@ identityProxy:
   tokenTtl: 10m
 ```
 
+#### 特殊なquery parameter
+
+| Query                             | 動作                                                                                     |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `gcp-iap-mode=IDENTITY`           | namespace付きの `email` と `sub` をJSONで返す                                            |
+| `gcp-iap-mode=CLEAR_LOGIN_COOKIE` | セッションを削除してCookieを失効させ、IAPのparameterを除いた同じURLへリダイレクトする    |
+| `gcp-iap-mode=SECURE_TOKEN_TEST`  | `iap-secure-token-test-type` に応じて期限切れ、issuer不一致などのテスト用assertionを送る |
+
+IAPエミュレーションが生成したレスポンスには `X-Goog-IAP-Generated-Response: true` を付与する。Hostは既定でクライアントの値を保持し、`hostRewrite` 指定時のみ置き換える。
+
 #### 制限
 
 Google公式IAP公開鍵では検証できない。アプリの開発モードで公開鍵URLを差し替える必要がある。
@@ -647,6 +663,10 @@ v0.1では意図的に機能を限定する。
 | `prefix`  | 固定prefixを付与            |
 
 任意JavaScript、テンプレート式、外部コマンド実行は許可しない。
+
+#### URL変換
+
+`translateUrlsInHeaders: true`（既定）では、upstreamへのHostを `upstream.url` のhostにし、レスポンスの `Location`、`Content-Location` と `Set-Cookie` の `Domain` のうちupstreamのoriginに一致するものをクライアント側のoriginへ変換する。`false` ではHostを保持し、変換しない。
 
 #### 信頼モデル
 
@@ -765,7 +785,8 @@ upstreamへの到達性はready条件に含めない。開発サーバーが後�
 2. `AUTHVEIL_CONFIG`
 3. カレントディレクトリの `authveil.config.yaml`
 4. カレントディレクトリの `authveil.config.yml`
-5. デフォルト設定
+
+`upstream.url` は必須のため、設定ファイルが見つからない場合は起動しない。
 
 同順位の複数ファイルを暗黙にマージしない。
 
@@ -830,8 +851,10 @@ keys:
 
 logging:
   level: info
-  format: pretty
+  format: json
 ```
+
+`logging.format: pretty` は設定値として受け付けるが、v0.1の出力は常にPino JSONである。
 
 ### 14.4 OIDC設定例
 
@@ -895,12 +918,12 @@ npx authveil start
 
 ```text
 AuthVeil v0.1.0
-Proxy:    http://127.0.0.1:3080
-Upstream: http://127.0.0.1:8080
-Mode:     mock
+Proxy:          http://127.0.0.1:3080
+Upstream:       http://127.0.0.1:8080/
+Mode:           mock
 Identity proxy: alb
-Login:    http://127.0.0.1:3080/_authveil/login
-JWKS:     http://127.0.0.1:3080/_authveil/.well-known/jwks.json
+Login:          http://127.0.0.1:3080/_authveil/login
+JWKS:           http://127.0.0.1:3080/_authveil/.well-known/jwks.json
 Development use only.
 ```
 
@@ -908,7 +931,7 @@ Development use only.
 
 ### 15.3 validate
 
-設定スキーマ、鍵、OIDC Discovery、claim mappingを検査する。upstream接続確認は `--check-upstream` 指定時のみ行う。
+v0.1では設定スキーマと鍵を検査する。OIDC Discovery、claim mappingの検査と、`--check-upstream` 指定時のupstream接続確認は将来の候補とする。
 
 ---
 
@@ -1002,7 +1025,7 @@ Path=/
 Secure=false only on http://localhost
 ```
 
-HTTPS起動時は `Secure=true` を強制する。remote bindで平文HTTPを使用する場合はOIDCモードの起動を拒否する。
+v0.1はHTTPS listenerを持たないため、`Secure` は `auth.cookie.secure` で明示的に有効にする。remote bindで平文HTTPを使用する場合はOIDCモードの起動を拒否する。
 
 ### 17.4 セッション保存
 
@@ -1196,34 +1219,33 @@ ETag: "<keyset fingerprint>"
 ```text
 authveil/
 ├─ src/
-│  ├─ index.ts
-│  ├─ cli.ts
-│  ├─ server.ts
-│  ├─ adapters.ts
-│  └─ testkit.ts        # authveil/testkit
+│  ├─ index.ts          # authveil
+│  ├─ cli.ts            # CLI entry point
+│  ├─ testkit.ts        # authveil/testkit
+│  ├─ config/           # YAML読み込み、環境変数展開、スキーマ検証
+│  ├─ core/             # 公開型、version
+│  ├─ identity/         # ProxyIdentity、mock、OIDC、session
+│  ├─ keys/             # ES256 key store
+│  ├─ proxy/            # Identity proxy adapter
+│  └─ server/           # HTTP server、control route、転送ヘッダー
 ├─ test/
-├─ fixtures/
-│  ├─ echo-upstream/
-│  ├─ sse-upstream/
-│  ├─ websocket-upstream/
-│  └─ oidc-provider/
 ├─ docs/
-│  ├─ providers/
-│  ├─ security/
-│  └─ contributing/
+│  ├─ user-guide/       # 公開イメージの利用者向け
+│  └─ development/      # contributorとライブラリ利用者向け
 ├─ examples/
 │  ├─ fastify-alb/
-│  ├─ express-iap/
-│  └─ generic-entra-headers/
+│  ├─ fastify-iap/
+│  ├─ fastify-entra-app-proxy/
+│  └─ fastify-generic/
 ├─ authveil.config.example.yaml
-├─ SECURITY.md
-├─ CONTRIBUTING.md
-├─ CODE_OF_CONDUCT.md
+├─ Dockerfile
 ├─ LICENSE
 ├─ package.json
 ├─ pnpm-workspace.yaml
 └─ tsconfig.json
 ```
+
+`SECURITY.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md` は公開前に追加する（30章のチェックリスト参照）。
 
 ### 21.2 npm packages
 
@@ -1319,10 +1341,10 @@ WebSocket/SSE E2Eは最低限UbuntuとWindowsで実施する。
 ### 23.2 Docker
 
 ```bash
-docker run --rm \
-  -p 3080:3080 \
+docker run --rm --init \
+  -p 127.0.0.1:3080:3080 \
   -v "$PWD/authveil.config.yaml:/app/authveil.config.yaml:ro" \
-  authveil/authveil:0.1.0
+  ghcr.io/tilfin/authveil:0.1.0
 ```
 
 コンテナでは `0.0.0.0` bindが必要になる。ホスト側公開先は利用者が `127.0.0.1:3080:3080` として制限できる例を優先する。
