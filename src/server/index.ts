@@ -224,6 +224,17 @@ export class AuthVeilServer implements AuthVeil {
         requestId,
         secureTokenTestType,
       );
+      if (exceedsHeaderLimit(generated)) {
+        sendError(
+          request,
+          response,
+          431,
+          "AUTHVEIL_HEADER_TOO_LARGE",
+          "The generated identity headers are too large.",
+          requestId,
+        );
+        return;
+      }
       await this.#proxy(request, response, { ...generated, "x-authveil-request-id": requestId });
     } catch (error) {
       this.#logger.error(
@@ -366,6 +377,12 @@ export class AuthVeilServer implements AuthVeil {
         session?.accessToken?.reveal(),
         requestId,
       );
+      if (exceedsHeaderLimit(generated)) {
+        socket.end(
+          "HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        );
+        return;
+      }
       const target = targetFor(this.config);
       request.headers = forwardHeaders(
         request,
@@ -398,4 +415,16 @@ export class AuthVeilServer implements AuthVeil {
       `http://${this.config.server.host}:${this.config.server.port}`
     );
   }
+}
+
+/**
+ * Generated identity headers larger than Node.js's HTTP header limit
+ * (16 KiB by default) cannot be accepted by a default Node.js upstream, so a
+ * very large claim such as `groups` is reported as 431 instead of an upstream error.
+ */
+function exceedsHeaderLimit(headers: Record<string, string>): boolean {
+  let size = 0;
+  for (const [name, value] of Object.entries(headers))
+    size += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
+  return size > http.maxHeaderSize;
 }

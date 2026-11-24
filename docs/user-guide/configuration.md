@@ -73,6 +73,8 @@ Set `identityProxy.type` to the environment your application expects:
 
 If omitted, the profile is `none`. AuthVeil discards built-in and configured identity headers plus client-supplied forwarding metadata before constructing the upstream request.
 
+If the generated identity headers are larger than the Node.js HTTP header limit (16 KiB by default), for example because of a very large `groups` claim, AuthVeil answers `431` with `AUTHVEIL_HEADER_TOO_LARGE` instead of forwarding the request.
+
 ## Signing keys
 
 ALB and IAP tokens use ES256. Choose one persistent-key source:
