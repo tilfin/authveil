@@ -86,6 +86,7 @@ AuthVeil は、これらのクラウド認証プロキシを完全に再実装�
 - 本物と同等のアクセストークンの合成
 - Entra Application Proxy Connectorプロトコルの再実装
 - ユーザー・パスワードの永続管理
+- 実ALB、IAP、Entra Application Proxyの後段で受け取った証明を検証し、ローカル鍵で再署名して転送する `verify` モード（ADR-009）
 
 ### 3.3 製品ポジション
 
@@ -166,11 +167,10 @@ AuthVeil の「互換」は3段階に分ける。
 
 ### 6.2 認証モード
 
-| モード   | 説明                                       | v0.1               |
-| -------- | ------------------------------------------ | ------------------ |
-| `mock`   | 静的ユーザーまたはユーザー選択UIを利用     | 必須               |
-| `oidc`   | 外部OIDC Providerへログイン                | 必須               |
-| `verify` | 実プロキシの証明を検証し、正規化して再転送 | 未実装（v0.2候補） |
+| モード | 説明                                   | v0.1 |
+| ------ | -------------------------------------- | ---- |
+| `mock` | 静的ユーザーまたはユーザー選択UIを利用 | 必須 |
+| `oidc` | 外部OIDC Providerへログイン            | 必須 |
 
 ### 6.3 出力プロファイル
 
@@ -248,7 +248,7 @@ AuthVeil の「互換」は3段階に分ける。
 | `ajv`           | 設定スキーマ検証                          |
 | `pino`          | 構造化ログ                                |
 
-`aws-jwt-verify` は `verify` モードまたはAWS向け検証SDKの依存とし、プロキシ本体の必須依存にはしない。
+`aws-jwt-verify` はプロキシ本体の依存にしない。AWS向け検証SDKを提供する場合は、そのSDK側の依存とする。
 
 ---
 
@@ -438,31 +438,7 @@ export interface IdentitySource {
 - `groups` を含む、`sub`、`email`、`name` 以外の claim は `claims` に保持する
 - access tokenやrefresh tokenは含めない
 
-### 10.2 Evidence
-
-`verify` モードではidentityの根拠を保持する。
-
-```ts
-export type IdentityEvidence =
-  | {
-      kind: "signed-jwt";
-      issuer: string;
-      audience?: string | readonly string[];
-      keyId: string;
-    }
-  | {
-      kind: "trusted-proxy-headers";
-      remoteAddress: string;
-    }
-  | {
-      kind: "local";
-      profileId: string;
-    };
-```
-
-`trusted-proxy-headers` は、明示されたCIDRまたはloopbackから到達した場合のみ生成できる。
-
-### 10.3 Adapter
+### 10.2 Adapter
 
 ```ts
 export interface IdentityProxyAdapter {
@@ -485,7 +461,7 @@ export interface AdapterContext {
 }
 ```
 
-### 10.4 Authenticator
+### 10.3 Authenticator
 
 ```ts
 export interface Authenticator {
@@ -497,7 +473,7 @@ export type AuthResult =
   | { authenticated: false; reason: "missing" | "expired" | "invalid" };
 ```
 
-### 10.5 SigningKeyStore
+### 10.4 SigningKeyStore
 
 ```ts
 export interface SigningKeyStore {
@@ -1384,7 +1360,6 @@ docker run --rm --init \
 
 ### 24.2 v0.2.0候補
 
-- 実ALB/IAP入力の `verify` モード安定化
 - 複数upstreamのpath routing
 - 鍵rotationシナリオ
 - 追加claim transform
@@ -1530,6 +1505,19 @@ await proxy.web(request, response, { headers });
 **決定**：本番proxyとしての機能を追加しない。
 
 **理由**：本番向け認証プロキシには可用性、ネットワーク境界、ポリシー評価、鍵運用など別次元の要件があるため。
+
+### ADR-009: `verify` モードを提供しない
+
+**決定**：実ALB、IAP、Entra Application Proxyの後段にAuthVeilを配置し、受け取った証明を検証してローカル鍵で再署名・転送する `verify` モードは提供しない。
+
+**理由**：
+
+- 実プロキシからの入力を検証して再署名するAuthVeilは認証境界そのものとなり、ADR-008のdevelopment-onlyの位置付けと矛盾する
+- 実プロキシの後段で動くアプリケーションは、実プロキシのトークンを直接検証すべきである。環境ごとにissuerと公開鍵URLを切り替えれば、ローカルと同じ検証ロジックをそのまま使える
+- 再署名を挟むと、クラウド上のアプリケーションが開発用の鍵を信頼する構成を誘発する
+- ALBのリージョン別公開鍵エンドポイントや `signer` 照合、IAPのaudience形式、鍵rotationへの継続的な追随が必要になる一方、実プロキシなしではE2Eテストできず、品質を維持しにくい
+
+**代替**：アプリケーションの検証ロジックのテストには、期限切れ、不正署名、issuer・audience・`kid`・`signer` 不一致などのトークンを明示的に生成する機能（FR-KEY-007）で対応する。
 
 ---
 
