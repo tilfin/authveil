@@ -46,8 +46,21 @@ export function escapeHtml(value: string): string {
   );
 }
 
+/**
+ * Accepts only same-origin relative paths. Browsers treat `/\host` and paths with
+ * embedded tabs or newlines as protocol-relative URLs, so the value is resolved
+ * with the WHATWG URL parser and rejected unless it stays on the local origin.
+ */
 export function safeReturnTo(value: string | null): string {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
+  if (!value?.startsWith("/")) return "/";
+  const base = "http://authveil.local";
+  let url: URL;
+  try {
+    url = new URL(value, base);
+  } catch {
+    return "/";
+  }
+  return url.origin === base ? `${url.pathname}${url.search}${url.hash}` : "/";
 }
 
 export function relativeUrl(url: URL): string {

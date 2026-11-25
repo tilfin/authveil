@@ -77,8 +77,9 @@ export function parseCookies(value: string | undefined): Record<string, string> 
   const result: Record<string, string> = {};
   for (const item of value?.split(";") ?? []) {
     const index = item.indexOf("=");
-    if (index > 0)
-      result[item.slice(0, index).trim()] = decodeURIComponent(item.slice(index + 1).trim());
+    if (index <= 0) continue;
+    const decoded = decodeCookieValue(item.slice(index + 1).trim());
+    if (decoded !== undefined) result[item.slice(0, index).trim()] = decoded;
   }
   return result;
 }
@@ -98,4 +99,13 @@ export function sessionCookie(
       ? [`Max-Age=${Math.max(0, Math.floor(options.maxAge / 1000))}`]
       : []),
   ].join("; ");
+}
+
+/** Cookies set by other applications may use any encoding; skip values that cannot be decoded. */
+function decodeCookieValue(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
 }

@@ -66,7 +66,7 @@ auth:
 
 The provider registration and `redirectUri` must match exactly. Change the URI when you change the listen port or `server.controlPrefix`.
 
-AuthVeil uses Authorization Code Flow with PKCE and validates state and nonce. The default scopes are `openid profile email`; add provider-specific scopes only when needed.
+AuthVeil uses Authorization Code Flow with PKCE and validates state and nonce. The default scopes are `openid profile email`; add provider-specific scopes only when needed. An `http://` issuer is accepted for local providers such as Keycloak or Dex in a container; use HTTPS for any remote provider.
 
 | Key                      | Required | Purpose                                                                    |
 | ------------------------ | -------- | -------------------------------------------------------------------------- |
@@ -77,7 +77,7 @@ AuthVeil uses Authorization Code Flow with PKCE and validates state and nonce. T
 | `auth.oidc.scopes`       | no       | Requested scopes.                                                          |
 | `auth.oidc.claimMapping` | no       | Dot-paths for the subject, email, and name claims.                         |
 
-Unmapped ID-token claims remain available as custom claims. AuthVeil does not normalize provider-specific claims such as `groups`.
+Unmapped ID-token claims remain available as custom claims. Claims that describe the ID token itself (`iss`, `aud`, `exp`, `iat`, `nbf`, `jti`, `nonce`, `azp`, `at_hash`, `c_hash`, and `s_hash`) are dropped, so generated ALB and IAP tokens use their own values. AuthVeil does not normalize provider-specific claims such as `groups`.
 
 OIDC listens only on `127.0.0.1`, `::1`, or `localhost`. Use mock mode or an HTTPS-terminating development environment when testing from another machine.
 
@@ -87,18 +87,18 @@ OIDC listens only on `127.0.0.1`, `::1`, or `localhost`. Use mock mode or an HTT
 | ---------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
 | `auth.sessionTtl`      | `8h`              | Lifetime of an in-memory session.                                                                               |
 | `auth.cookie.name`     | profile-dependent | Session cookie name. ALB defaults to `AWSELBAuthSessionCookie-0`; other profiles default to `authveil_session`. |
-| `auth.cookie.sameSite` | `lax`             | `lax`, `strict`, or `none`.                                                                                     |
+| `auth.cookie.sameSite` | `lax`             | `lax`, `strict`, or `none`. `none` requires `auth.cookie.secure: true`.                                         |
 | `auth.cookie.secure`   | `false`           | Adds `Secure`; enable only when the browser uses HTTPS.                                                         |
 
 Sessions are stored in memory and disappear when AuthVeil restarts. Useful control routes under `server.controlPrefix` are:
 
-| Route                       | Purpose                                                      |
-| --------------------------- | ------------------------------------------------------------ |
-| `GET /login`                | Start OIDC login or choose a mock user.                      |
-| `GET /me`                   | Return the current identity and logout CSRF token.           |
-| `POST /logout`              | End the session; send the token in `X-AuthVeil-CSRF`.        |
-| `GET /debug/headers`        | Preview masked generated headers for an active mock session. |
-| `GET /health`, `GET /ready` | Process health and readiness.                                |
+| Route                       | Purpose                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /login`                | Start OIDC login or choose a mock user.                                                                             |
+| `GET /me`                   | Return the current identity and logout CSRF token. With `auth.mockUser`, return the fixed identity without a token. |
+| `POST /logout`              | End the session; send the token in `X-AuthVeil-CSRF`.                                                               |
+| `GET /debug/headers`        | Preview masked generated headers for the current mock identity.                                                     |
+| `GET /health`, `GET /ready` | Process health and readiness.                                                                                       |
 
 ## Troubleshooting
 

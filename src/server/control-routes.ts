@@ -4,7 +4,7 @@ import { identityFromMock } from "../identity/identity.js";
 import type { KeyStore } from "../keys/key-store.js";
 import type { OidcAuthenticator } from "../identity/oidc.js";
 import { sessionCookie, type SessionRecord, type SessionStore } from "../identity/session.js";
-import type { ResolvedConfig } from "../core/types.js";
+import type { ProxyIdentity, ResolvedConfig } from "../core/types.js";
 import { escapeHtml, html, json, safeEqual, safeReturnTo, sendError } from "./responses.js";
 import { VERSION } from "../core/version.js";
 
@@ -14,6 +14,8 @@ export interface ControlRoutesDependencies {
   sessions: SessionStore;
   adapter: ReturnType<typeof createIdentityProxyAdapter>;
   oidc?: OidcAuthenticator;
+  /** Identity injected for every request when auth.mockUser is configured. */
+  fixedIdentity?: ProxyIdentity;
   oidcBase(): string;
   getSession(request: IncomingMessage): SessionRecord | undefined;
 }
@@ -27,7 +29,8 @@ export class ControlRoutes {
     url: URL,
     requestId: string,
   ): Promise<void> {
-    const { adapter, config, getSession, keys, oidc, oidcBase, sessions } = this.dependencies;
+    const { adapter, config, fixedIdentity, getSession, keys, oidc, oidcBase, sessions } =
+      this.dependencies;
     const path = url.pathname.slice(config.server.controlPrefix.length) || "/";
     if (request.method === "GET" && path === "/health")
       return json(response, 200, { status: "ok", version: VERSION });
@@ -39,7 +42,8 @@ export class ControlRoutes {
       return json(response, 200, await keys.publicJwks());
     }
     if (request.method === "GET" && path.startsWith("/keys/")) {
-      const pem = await keys.publicPem(decodeURIComponent(path.slice(6)));
+      const keyId = decodePathSegment(path.slice(6));
+      const pem = keyId === undefined ? undefined : await keys.publicPem(keyId);
       if (!pem)
         return sendError(
           request,
@@ -81,12 +85,15 @@ export class ControlRoutes {
 
     const session = getSession(request);
     if (request.method === "GET" && path === "/me") {
+      // The fixed identity has no session to log out of, so no CSRF token is returned.
+      if (fixedIdentity) return json(response, 200, { identity: fixedIdentity });
       if (!session) return this.missingSession(request, response, requestId);
       return json(response, 200, { identity: session.identity, csrfToken: session.csrfToken });
     }
     if (request.method === "GET" && path === "/debug/headers" && config.auth.mode === "mock") {
-      if (!session) return this.missingSession(request, response, requestId);
-      const headers = await adapter.createHeaders(session.identity, {
+      const identity = fixedIdentity ?? session?.identity;
+      if (!identity) return this.missingSession(request, response, requestId);
+      const headers = await adapter.createHeaders(identity, {
         now: new Date(),
         keyStore: keys,
         requestId,
@@ -178,5 +185,13 @@ export class ControlRoutes {
   private cookie(id: string, maxAge = this.dependencies.config.auth.sessionTtl): string {
     const { auth } = this.dependencies.config;
     return sessionCookie(auth.cookie.name, id, { ...auth.cookie, maxAge });
+  }
+}
+
+function decodePathSegment(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
   }
 }

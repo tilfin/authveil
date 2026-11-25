@@ -26,6 +26,9 @@ import type {
 } from "../core/types.js";
 import { identityFromMock } from "../identity/identity.js";
 
+/** Time allowed for in-flight requests, SSE streams, and WebSockets to finish on close. */
+const SHUTDOWN_GRACE_MS = 2_000;
+
 export class AuthVeilServer implements AuthVeil {
   readonly #server: http.Server;
   readonly #proxyEngine = createProxyServer();
@@ -33,6 +36,7 @@ export class AuthVeilServer implements AuthVeil {
   readonly #sessions: SessionStore;
   readonly #adapter: IdentityProxyAdapter;
   readonly #externalOrigins = new WeakMap<IncomingMessage, ExternalOrigin>();
+  readonly #upgradedSockets = new Set<import("node:stream").Duplex>();
   readonly #fixedMockIdentity?: ProxyIdentity;
   #control: ControlRoutes;
   #oidc?: OidcAuthenticator;
@@ -68,6 +72,7 @@ export class AuthVeilServer implements AuthVeil {
       keys,
       sessions: this.#sessions,
       adapter: this.#adapter,
+      ...(this.#fixedMockIdentity ? { fixedIdentity: this.#fixedMockIdentity } : {}),
       getSession: (request) => this.#session(request),
       oidcBase: () => this.#oidcBase(),
     });
@@ -81,6 +86,19 @@ export class AuthVeilServer implements AuthVeil {
     this.#server.on("clientError", (_error, socket) =>
       socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"),
     );
+    this.#proxyEngine.on("proxyReq", (proxyRequest) => {
+      const timeout = this.config.upstream.requestTimeout;
+      if (timeout > 0)
+        proxyRequest.setTimeout(timeout, () => proxyRequest.destroy(upstreamTimeoutError()));
+    });
+    // httpxy only ends the upstream WebSocket when the client socket ends or errors;
+    // close it as well when the client socket is destroyed, e.g. during shutdown.
+    this.#proxyEngine.on("proxyReqWs", (proxyRequest, _request, socket) => {
+      proxyRequest.once("upgrade", (_response, proxySocket: import("node:net").Socket) => {
+        if (socket.destroyed) proxySocket.destroy();
+        else socket.once("close", () => proxySocket.destroy());
+      });
+    });
     this.#proxyEngine.on("proxyRes", (proxyResponse, request) => {
       const origin = this.#externalOrigins.get(request);
       if (this.config.identityProxy.type === "entra-app-proxy" && origin) {
@@ -150,7 +168,18 @@ export class AuthVeilServer implements AuthVeil {
         resolve();
         return;
       }
-      this.#server.close((error) => (error ? reject(error) : resolve()));
+      // Long-lived SSE responses and WebSockets never finish on their own, so
+      // stop waiting for them once the grace period has passed.
+      const forceClose = setTimeout(() => {
+        this.#server.closeAllConnections();
+        for (const socket of this.#upgradedSockets) socket.destroy();
+      }, SHUTDOWN_GRACE_MS);
+      forceClose.unref();
+      this.#server.close((error) => {
+        clearTimeout(forceClose);
+        if (error) reject(error);
+        else resolve();
+      });
       this.#server.closeIdleConnections();
     });
     return this.#closing;
@@ -177,11 +206,9 @@ export class AuthVeilServer implements AuthVeil {
 
     try {
       const url = new URL(request.url ?? "/", "http://authveil.local");
-      if (
-        url.pathname === this.config.server.controlPrefix ||
-        url.pathname.startsWith(`${this.config.server.controlPrefix}/`)
-      ) {
-        return this.#control.handle(request, response, url, requestId);
+      if (this.#isControlPath(url)) {
+        await this.#control.handle(request, response, url, requestId);
+        return;
       }
 
       if (
@@ -224,6 +251,17 @@ export class AuthVeilServer implements AuthVeil {
         requestId,
         secureTokenTestType,
       );
+      if (exceedsHeaderLimit(generated)) {
+        sendError(
+          request,
+          response,
+          431,
+          "AUTHVEIL_HEADER_TOO_LARGE",
+          "The generated identity headers are too large.",
+          requestId,
+        );
+        return;
+      }
       await this.#proxy(request, response, { ...generated, "x-authveil-request-id": requestId });
     } catch (error) {
       this.#logger.error(
@@ -322,12 +360,9 @@ export class AuthVeilServer implements AuthVeil {
       await this.#proxyEngine.web(request, response, {
         target,
         changeOrigin: false,
-        proxyTimeout: this.config.upstream.requestTimeout || undefined,
       });
     } catch (error) {
-      const timedOut = ["ETIMEDOUT", "ESOCKETTIMEDOUT"].includes(
-        (error as NodeJS.ErrnoException).code ?? "",
-      );
+      const timedOut = (error as NodeJS.ErrnoException).code === "ETIMEDOUT";
       if (!response.headersSent) {
         sendError(
           request,
@@ -350,22 +385,35 @@ export class AuthVeilServer implements AuthVeil {
     socket: import("node:stream").Duplex,
     head: Buffer,
   ): Promise<void> {
-    const session = this.#session(request);
-    const identity = this.#fixedMockIdentity ?? session?.identity;
-    if (!identity) {
-      socket.end(
-        `HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nX-AuthVeil-Login: ${this.config.server.controlPrefix}/login\r\n${this.config.identityProxy.type === "iap" ? "X-Goog-IAP-Generated-Response: true\r\n" : ""}Content-Length: 0\r\n\r\n`,
-      );
-      return;
-    }
-
+    this.#upgradedSockets.add(socket);
+    socket.once("close", () => this.#upgradedSockets.delete(socket));
     try {
+      if (this.#isControlPath(new URL(request.url ?? "/", "http://authveil.local"))) {
+        socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        return;
+      }
+
+      const session = this.#session(request);
+      const identity = this.#fixedMockIdentity ?? session?.identity;
+      if (!identity) {
+        socket.end(
+          `HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nX-AuthVeil-Login: ${this.config.server.controlPrefix}/login\r\n${this.config.identityProxy.type === "iap" ? "X-Goog-IAP-Generated-Response: true\r\n" : ""}Content-Length: 0\r\n\r\n`,
+        );
+        return;
+      }
+
       const requestId = randomUUID();
       const generated = await this.#identityHeaders(
         identity,
         session?.accessToken?.reveal(),
         requestId,
       );
+      if (exceedsHeaderLimit(generated)) {
+        socket.end(
+          "HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        );
+        return;
+      }
       const target = targetFor(this.config);
       request.headers = forwardHeaders(
         request,
@@ -387,6 +435,11 @@ export class AuthVeilServer implements AuthVeil {
     }
   }
 
+  #isControlPath(url: URL): boolean {
+    const prefix = this.config.server.controlPrefix;
+    return url.pathname === prefix || url.pathname.startsWith(`${prefix}/`);
+  }
+
   #session(request: IncomingMessage) {
     return this.#sessions.get(parseCookies(request.headers.cookie)[this.config.auth.cookie.name]);
   }
@@ -398,4 +451,26 @@ export class AuthVeilServer implements AuthVeil {
       `http://${this.config.server.host}:${this.config.server.port}`
     );
   }
+}
+
+/**
+ * httpxy's own proxyTimeout destroys the request without an error, which is
+ * indistinguishable from a reset connection, so AuthVeil applies the timeout itself.
+ */
+function upstreamTimeoutError(): NodeJS.ErrnoException {
+  const error: NodeJS.ErrnoException = new Error("Upstream request timed out");
+  error.code = "ETIMEDOUT";
+  return error;
+}
+
+/**
+ * Generated identity headers larger than Node.js's HTTP header limit
+ * (16 KiB by default) cannot be accepted by a default Node.js upstream, so a
+ * very large claim such as `groups` is reported as 431 instead of an upstream error.
+ */
+function exceedsHeaderLimit(headers: Record<string, string>): boolean {
+  let size = 0;
+  for (const [name, value] of Object.entries(headers))
+    size += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
+  return size > http.maxHeaderSize;
 }

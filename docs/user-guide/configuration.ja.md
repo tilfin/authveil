@@ -34,6 +34,8 @@ docker run --rm \
 
 YAML の任意の文字列で `${NAME}` を使うと環境変数を参照できます。名前は `[A-Z_][A-Z0-9_]*` に一致する必要があり、値が未設定の場合は読み込みに失敗します。この展開では任意の環境変数を参照でき、上記4つの環境変数による直接設定とは別の機能です。
 
+参照は YAML の解析後に展開されるため、値はそのまま挿入され、文書の構造を変えることはありません。コメント内の参照は無視されます。`port: ${PORT}` のように引用符なしで参照 1 つだけを書いた値は、環境変数の値が数値または真偽値であればその型になります。文字列のままにするには引用符で囲んでください。
+
 参照する環境変数は Docker の `--env` または `--env-file` option で container に渡してください。ホスト shell の環境変数は自動的には引き継がれません。
 
 ```yaml
@@ -57,7 +59,7 @@ auth:
 | `upstream.url`            | HTTP(S) URL | 必須         | リクエストの転送先として固定する origin。                |
 | `upstream.requestTimeout` | duration    | `0`          | upstream の timeout。`0` は無効です。                    |
 
-`server.controlPrefix` の末尾 `/` は削除されます。OIDC モードでは loopback アドレス以外を指定できません。
+`server.controlPrefix` には `/_authveil` のように 1 つ以上の path segment が必要で、`/` は指定できません。末尾の `/` は削除されます。OIDC モードでは loopback アドレス以外を指定できません。
 
 ## プロファイルの選択
 
@@ -72,6 +74,8 @@ auth:
 | `none`            | [Identity Header なし](./generic.ja.md#none-プロファイル)  |
 
 省略時は `none` です。AuthVeil は組み込みまたは設定済みの Identity Header と、クライアントから届いた forwarding metadata を破棄してから upstream リクエストを組み立てます。
+
+非常に大きな `groups` claim などにより、生成した Identity Header が Node.js の HTTP header 上限（既定は 16 KiB）を超える場合、AuthVeil はリクエストを転送せず `AUTHVEIL_HEADER_TOO_LARGE` とともに `431` を返します。
 
 ## 署名鍵
 
@@ -105,7 +109,7 @@ docker run --rm \
   keys show --config /config/authveil.config.yaml
 ```
 
-最初のコマンドではホストユーザーの UID / GID を使うため、生成した鍵をそのユーザーが引き続き更新できます。`privateKeyFile: .authveil/private-key.pem` の場合、ディレクトリ全体を `/config` に mount すると `/config/authveil.config.yaml` からの相対パスで鍵を解決できます。
+最初のコマンドではホストユーザーの UID / GID を使うため、生成した鍵をそのユーザーが引き続き更新できます。`--out` を省略すると、`keys generate` は作業ディレクトリ配下の `.authveil/private-key.pem` に書き込み、必要ならディレクトリも作成します。既存のファイルは `--force` を指定しない限り上書きしません。`validate` は既存の `privateKeyFile` を検査しますが、存在しないファイルは作成しません。`privateKeyFile: .authveil/private-key.pem` の場合、ディレクトリ全体を `/config` に mount すると `/config/authveil.config.yaml` からの相対パスで鍵を解決できます。
 
 公開 JWKS は `/_authveil/.well-known/jwks.json` で取得できます。
 
@@ -116,4 +120,4 @@ docker run --rm \
 | `logging.level`  | `trace` \| `debug` \| `info` \| `warn` \| `error` \| `fatal` \| `silent` | `info` | 最小 log level。                                                        |
 | `logging.format` | `json` \| `pretty`                                                       | `json` | 出力形式の設定値。現在の runtime logging は Pino の JSON を使用します。 |
 
-duration はミリ秒の数値、または `ms`、`s`、`m`、`h`、`d` で終わる文字列で指定します。
+duration は 0 以上のミリ秒の数値、または `30s` のように整数の後に `ms`、`s`、`m`、`h`、`d` を付けた文字列で指定します。`auth.sessionTtl` と `identityProxy.tokenTtl` は 0 より大きい値が必要です。不正な duration は設定の読み込み時にエラーになります。
