@@ -86,6 +86,7 @@ AuthVeil は、これらのクラウド認証プロキシを完全に再実装�
 - 本物と同等のアクセストークンの合成
 - Entra Application Proxy Connectorプロトコルの再実装
 - ユーザー・パスワードの永続管理
+- 実ALB、IAP、Entra Application Proxyの後段で受け取った証明を検証し、ローカル鍵で再署名して転送する `verify` モード（ADR-009）
 
 ### 3.3 製品ポジション
 
@@ -135,7 +136,7 @@ Google、Microsoft Entra ID、Keycloak、CognitoなどのOIDC Providerで実際�
 
 AuthVeil の「互換」は3段階に分ける。
 
-| レベル               | 定義                                                   | v0.1   |
+| レベル               | 定義                                                   | v0.2   |
 | -------------------- | ------------------------------------------------------ | ------ |
 | Header compatibility | ヘッダー名と値の形状が対象サービスと一致する           | 対応   |
 | Claim compatibility  | JWT header/payloadの主要claimsが対象サービスと一致する | 対応   |
@@ -166,11 +167,10 @@ AuthVeil の「互換」は3段階に分ける。
 
 ### 6.2 認証モード
 
-| モード   | 説明                                       | v0.1         |
-| -------- | ------------------------------------------ | ------------ |
-| `mock`   | 静的ユーザーまたはユーザー選択UIを利用     | 必須         |
-| `oidc`   | 外部OIDC Providerへログイン                | 必須         |
-| `verify` | 実プロキシの証明を検証し、正規化して再転送 | Experimental |
+| モード | 説明                                   | v0.2 |
+| ------ | -------------------------------------- | ---- |
+| `mock` | 静的ユーザーまたはユーザー選択UIを利用 | 必須 |
+| `oidc` | 外部OIDC Providerへログイン            | 必須 |
 
 ### 6.3 出力プロファイル
 
@@ -248,7 +248,7 @@ AuthVeil の「互換」は3段階に分ける。
 | `ajv`           | 設定スキーマ検証                          |
 | `pino`          | 構造化ログ                                |
 
-`aws-jwt-verify` は `verify` モードまたはAWS向け検証SDKの依存とし、プロキシ本体の必須依存にはしない。
+`aws-jwt-verify` はプロキシ本体の依存にしない。AWS向け検証SDKを提供する場合は、そのSDK側の依存とする。
 
 ---
 
@@ -391,6 +391,8 @@ X-AuthVeil-Login: /_authveil/login
 Content-Length: 0
 ```
 
+`iap` プロファイルでは `X-Goog-IAP-Generated-Response: true` も付与する。control prefix 配下へのUpgradeはupstreamへ転送せず `404` で拒否する。
+
 認証済みの場合：
 
 1. Cookieからセッションを検証する
@@ -418,7 +420,7 @@ export interface ProxyIdentity {
   readonly subject: string;
   readonly email?: string;
   readonly name?: string;
-  readonly claims: Readonly<Record<string, unknown>>;
+  readonly claims: Readonly<Record<string, JsonValue>>;
   readonly source: IdentitySource;
 }
 
@@ -436,31 +438,7 @@ export interface IdentitySource {
 - `groups` を含む、`sub`、`email`、`name` 以外の claim は `claims` に保持する
 - access tokenやrefresh tokenは含めない
 
-### 10.2 Evidence
-
-`verify` モードではidentityの根拠を保持する。
-
-```ts
-export type IdentityEvidence =
-  | {
-      kind: "signed-jwt";
-      issuer: string;
-      audience?: string | readonly string[];
-      keyId: string;
-    }
-  | {
-      kind: "trusted-proxy-headers";
-      remoteAddress: string;
-    }
-  | {
-      kind: "local";
-      profileId: string;
-    };
-```
-
-`trusted-proxy-headers` は、明示されたCIDRまたはloopbackから到達した場合のみ生成できる。
-
-### 10.3 Adapter
+### 10.2 Adapter
 
 ```ts
 export interface IdentityProxyAdapter {
@@ -478,10 +456,12 @@ export interface AdapterContext {
   readonly now: Date;
   readonly keyStore: SigningKeyStore;
   readonly requestId: string;
+  /** gcp-iap-mode=SECURE_TOKEN_TEST で再現する検証失敗 */
+  readonly iapSecureTokenTestType?: IapSecureTokenTestType;
 }
 ```
 
-### 10.4 Authenticator
+### 10.3 Authenticator
 
 ```ts
 export interface Authenticator {
@@ -489,11 +469,11 @@ export interface Authenticator {
 }
 
 export type AuthResult =
-  | { authenticated: true; identity: ProxyIdentity; sessionId?: string }
+  | { authenticated: true; identity: ProxyIdentity; sessionId?: string; accessToken?: string }
   | { authenticated: false; reason: "missing" | "expired" | "invalid" };
 ```
 
-### 10.5 SigningKeyStore
+### 10.4 SigningKeyStore
 
 ```ts
 export interface SigningKeyStore {
@@ -524,6 +504,8 @@ x-amzn-oidc-accesstoken: <IdP access token or AuthVeil-signed local access token
 ```
 
 `x-amzn-oidc-accesstoken` は常に付与する。`oidc` モードでIdPからaccess tokenを取得した場合はその値を使用し、`mock` モードではAuthVeilの署名鍵でローカルaccess tokenを生成する。
+
+`alb` プロファイルではセッションCookie名の既定値をALBの最初のshardと同じ `AWSELBAuthSessionCookie-0` とする。Hostは `preserveHostHeader: false`（既定）でlisten portを付けたAuthVeilのhostへ正規化し、`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Port` をALBの形式で再生成する。
 
 #### JOSE header
 
@@ -608,6 +590,16 @@ identityProxy:
   tokenTtl: 10m
 ```
 
+#### 特殊なquery parameter
+
+| Query                             | 動作                                                                                     |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `gcp-iap-mode=IDENTITY`           | namespace付きの `email` と `sub` をJSONで返す                                            |
+| `gcp-iap-mode=CLEAR_LOGIN_COOKIE` | セッションを削除してCookieを失効させ、IAPのparameterを除いた同じURLへリダイレクトする    |
+| `gcp-iap-mode=SECURE_TOKEN_TEST`  | `iap-secure-token-test-type` に応じて期限切れ、issuer不一致などのテスト用assertionを送る |
+
+IAPエミュレーションが生成したレスポンスには `X-Goog-IAP-Generated-Response: true` を付与する。Hostは既定でクライアントの値を保持し、`hostRewrite` 指定時のみ置き換える。
+
 #### 制限
 
 Google公式IAP公開鍵では検証できない。アプリの開発モードで公開鍵URLを差し替える必要がある。
@@ -637,7 +629,7 @@ identityProxy:
 
 #### 対応transform
 
-v0.1では意図的に機能を限定する。
+v0.2では意図的に機能を限定する。
 
 | transform | 動作                        |
 | --------- | --------------------------- |
@@ -647,6 +639,10 @@ v0.1では意図的に機能を限定する。
 | `prefix`  | 固定prefixを付与            |
 
 任意JavaScript、テンプレート式、外部コマンド実行は許可しない。
+
+#### URL変換
+
+`translateUrlsInHeaders: true`（既定）では、upstreamへのHostを `upstream.url` のhostにし、レスポンスの `Location`、`Content-Location` と `Set-Cookie` の `Domain` のうちupstreamのoriginに一致するものをクライアント側のoriginへ変換する。`false` ではHostを保持し、変換しない。
 
 #### 信頼モデル
 
@@ -728,7 +724,7 @@ incoming headers
 ```json
 {
   "status": "ok",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
 ```
 
@@ -765,7 +761,8 @@ upstreamへの到達性はready条件に含めない。開発サーバーが後�
 2. `AUTHVEIL_CONFIG`
 3. カレントディレクトリの `authveil.config.yaml`
 4. カレントディレクトリの `authveil.config.yml`
-5. デフォルト設定
+
+`upstream.url` は必須のため、設定ファイルが見つからない場合は起動しない。
 
 同順位の複数ファイルを暗黙にマージしない。
 
@@ -830,8 +827,10 @@ keys:
 
 logging:
   level: info
-  format: pretty
+  format: json
 ```
+
+`logging.format: pretty` は設定値として受け付けるが、v0.2の出力は常にPino JSONである。
 
 ### 14.4 OIDC設定例
 
@@ -894,13 +893,13 @@ npx authveil start
 起動ログ：
 
 ```text
-AuthVeil v0.1.0
-Proxy:    http://127.0.0.1:3080
-Upstream: http://127.0.0.1:8080
-Mode:     mock
+AuthVeil v0.2.0
+Proxy:          http://127.0.0.1:3080
+Upstream:       http://127.0.0.1:8080/
+Mode:           mock
 Identity proxy: alb
-Login:    http://127.0.0.1:3080/_authveil/login
-JWKS:     http://127.0.0.1:3080/_authveil/.well-known/jwks.json
+Login:          http://127.0.0.1:3080/_authveil/login
+JWKS:           http://127.0.0.1:3080/_authveil/.well-known/jwks.json
 Development use only.
 ```
 
@@ -908,7 +907,7 @@ Development use only.
 
 ### 15.3 validate
 
-設定スキーマ、鍵、OIDC Discovery、claim mappingを検査する。upstream接続確認は `--check-upstream` 指定時のみ行う。
+v0.2では設定スキーマと既存の鍵を検査する。鍵ファイルが存在しなくても作成しない。OIDC Discovery、claim mappingの検査と、`--check-upstream` 指定時のupstream接続確認は将来の候補とする。
 
 ---
 
@@ -1002,7 +1001,7 @@ Path=/
 Secure=false only on http://localhost
 ```
 
-HTTPS起動時は `Secure=true` を強制する。remote bindで平文HTTPを使用する場合はOIDCモードの起動を拒否する。
+v0.2はHTTPS listenerを持たないため、`Secure` は `auth.cookie.secure` で明示的に有効にする。remote bindで平文HTTPを使用する場合はOIDCモードの起動を拒否する。
 
 ### 17.4 セッション保存
 
@@ -1025,7 +1024,7 @@ interface SessionRecord {
 
 ### 17.5 鍵
 
-- アルゴリズムはv0.1ではES256のみ
+- アルゴリズムはv0.2ではES256のみ
 - ephemeral鍵は起動ごとに変更される
 - 安定したテストには `privateKeyFile` による永続鍵を使用する
 - `privateKey` と `privateKeyFile` は同時に指定できない
@@ -1140,7 +1139,7 @@ X-AuthVeil-Request-Id: 01J...
 
 ### 19.3 メトリクス
 
-v0.1ではPrometheus endpointを実装しない。debugログとベンチマークを優先する。将来追加する場合もデフォルト無効とする。
+v0.2ではPrometheus endpointを実装しない。debugログとベンチマークを優先する。将来追加する場合もデフォルト無効とする。
 
 ### 19.4 Telemetry
 
@@ -1196,34 +1195,34 @@ ETag: "<keyset fingerprint>"
 ```text
 authveil/
 ├─ src/
-│  ├─ index.ts
-│  ├─ cli.ts
-│  ├─ server.ts
-│  ├─ adapters.ts
-│  └─ testkit.ts        # authveil/testkit
+│  ├─ index.ts          # authveil
+│  ├─ cli.ts            # CLI entry point（signal、exit code）
+│  ├─ cli/              # CLIコマンドの実装
+│  ├─ testkit.ts        # authveil/testkit
+│  ├─ config/           # YAML読み込み、環境変数展開、スキーマ検証
+│  ├─ core/             # 公開型、version
+│  ├─ identity/         # ProxyIdentity、mock、OIDC、session
+│  ├─ keys/             # ES256 key store
+│  ├─ proxy/            # Identity proxy adapter、署名済みtoken cache
+│  └─ server/           # HTTP server、control route、転送ヘッダー
 ├─ test/
-├─ fixtures/
-│  ├─ echo-upstream/
-│  ├─ sse-upstream/
-│  ├─ websocket-upstream/
-│  └─ oidc-provider/
 ├─ docs/
-│  ├─ providers/
-│  ├─ security/
-│  └─ contributing/
+│  ├─ user-guide/       # 公開イメージの利用者向け
+│  └─ development/      # contributorとライブラリ利用者向け
 ├─ examples/
 │  ├─ fastify-alb/
-│  ├─ express-iap/
-│  └─ generic-entra-headers/
+│  ├─ fastify-iap/
+│  ├─ fastify-entra-app-proxy/
+│  └─ fastify-generic/
 ├─ authveil.config.example.yaml
-├─ SECURITY.md
-├─ CONTRIBUTING.md
-├─ CODE_OF_CONDUCT.md
+├─ Dockerfile
 ├─ LICENSE
 ├─ package.json
 ├─ pnpm-workspace.yaml
 └─ tsconfig.json
 ```
+
+`SECURITY.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md` は公開前に追加する（30章のチェックリスト参照）。
 
 ### 21.2 npm packages
 
@@ -1319,10 +1318,10 @@ WebSocket/SSE E2Eは最低限UbuntuとWindowsで実施する。
 ### 23.2 Docker
 
 ```bash
-docker run --rm \
-  -p 3080:3080 \
+docker run --rm --init \
+  -p 127.0.0.1:3080:3080 \
   -v "$PWD/authveil.config.yaml:/app/authveil.config.yaml:ro" \
-  authveil/authveil:0.1.0
+  ghcr.io/tilfin/authveil:0.2.0
 ```
 
 コンテナでは `0.0.0.0` bindが必要になる。ホスト側公開先は利用者が `127.0.0.1:3080:3080` として制限できる例を優先する。
@@ -1341,7 +1340,7 @@ docker run --rm \
 
 ## 24. リリース計画
 
-### 24.1 v0.1.0
+### 24.1 v0.1.0（リリース済み）
 
 必須：
 
@@ -1360,15 +1359,32 @@ docker run --rm \
 - Docker image
 - セキュリティ文書
 
-### 24.2 v0.2.0候補
+### 24.2 v0.2.0
 
-- 実ALB/IAP入力の `verify` モード安定化
+v0.1.0の機能範囲を維持し、設計との差異の解消と堅牢化を行う。
+
+- 設定読み込み時の検証強化（duration、control prefix、mapping先ヘッダー名、SameSite=None、mock user ID重複、OIDC URL）
+- YAML解析後の環境変数展開
+- 生成identityヘッダーの上限超過時の `431`、upstream timeout時の `504`
+- SSE・WebSocketを含むgraceful shutdown
+- `returnTo`、control route、Cookie、WebSocket Upgradeの堅牢化
+- HTTP issuerのOIDC Providerへの対応と、ID token固有claimの除外
+- 署名済みtoken cacheの上限と再利用
+- ALBのIPv6 Host正規化と `X-Forwarded-Port` の修正
+- 固定mock userでの `/me`、`/debug/headers`
+- CLI `keys generate` の既定パス、`validate` の副作用除去
+- `verify` モードを非目的へ移動（ADR-009）
+
+### 24.3 将来の候補
+
 - 複数upstreamのpath routing
 - 鍵rotationシナリオ
 - 追加claim transform
 - プログラム可能Adapter API
+- テスト用不正トークン生成のALB・CLI・testkitへの拡張（FR-KEY-007。v0.2ではIAPの `SECURE_TOKEN_TEST` のみ）
+- `validate` でのOIDC Discovery、claim mapping、upstream接続の検査
 
-### 24.3 v1.0条件
+### 24.4 v1.0条件
 
 - 公開APIの安定化
 - 設定version migration方針
@@ -1487,13 +1503,13 @@ await proxy.web(request, response, { headers });
 
 ### ADR-005: 固定upstream
 
-**決定**：v0.1は1つの固定upstreamのみ扱う。
+**決定**：v0.2は1つの固定upstreamのみ扱う。
 
 **理由**：Open Proxy化とSSRFリスクを抑え、製品責務を認証境界の再現に集中させるため。
 
 ### ADR-006: ES256のみ
 
-**決定**：v0.1の署名アルゴリズムはES256のみ。
+**決定**：v0.2の署名アルゴリズムはES256のみ。
 
 **理由**：ALBとIAPの署名形式に合わせ、テスト対象を限定するため。
 
@@ -1508,6 +1524,19 @@ await proxy.web(request, response, { headers });
 **決定**：本番proxyとしての機能を追加しない。
 
 **理由**：本番向け認証プロキシには可用性、ネットワーク境界、ポリシー評価、鍵運用など別次元の要件があるため。
+
+### ADR-009: `verify` モードを提供しない
+
+**決定**：実ALB、IAP、Entra Application Proxyの後段にAuthVeilを配置し、受け取った証明を検証してローカル鍵で再署名・転送する `verify` モードは提供しない。
+
+**理由**：
+
+- 実プロキシからの入力を検証して再署名するAuthVeilは認証境界そのものとなり、ADR-008のdevelopment-onlyの位置付けと矛盾する
+- 実プロキシの後段で動くアプリケーションは、実プロキシのトークンを直接検証すべきである。環境ごとにissuerと公開鍵URLを切り替えれば、ローカルと同じ検証ロジックをそのまま使える
+- 再署名を挟むと、クラウド上のアプリケーションが開発用の鍵を信頼する構成を誘発する
+- ALBのリージョン別公開鍵エンドポイントや `signer` 照合、IAPのaudience形式、鍵rotationへの継続的な追随が必要になる一方、実プロキシなしではE2Eテストできず、品質を維持しにくい
+
+**代替**：アプリケーションの検証ロジックのテストには、期限切れ、不正署名、issuer・audience・`kid`・`signer` 不一致などのトークンを明示的に生成する機能（FR-KEY-007）で対応する。
 
 ---
 

@@ -114,7 +114,7 @@ describe("AuthVeil server", () => {
     const base = await mirror();
     expect(await (await fetch(`${base}/_authveil/health`)).json()).toMatchObject({
       status: "ok",
-      version: "0.1.0",
+      version: "0.2.0",
     });
     const unauthenticated = await fetch(`${base}/hello?q=1`, { redirect: "manual" });
     expect(unauthenticated.status).toBe(302);
