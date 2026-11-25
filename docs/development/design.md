@@ -136,7 +136,7 @@ Google、Microsoft Entra ID、Keycloak、CognitoなどのOIDC Providerで実際�
 
 AuthVeil の「互換」は3段階に分ける。
 
-| レベル               | 定義                                                   | v0.1   |
+| レベル               | 定義                                                   | v0.2   |
 | -------------------- | ------------------------------------------------------ | ------ |
 | Header compatibility | ヘッダー名と値の形状が対象サービスと一致する           | 対応   |
 | Claim compatibility  | JWT header/payloadの主要claimsが対象サービスと一致する | 対応   |
@@ -167,7 +167,7 @@ AuthVeil の「互換」は3段階に分ける。
 
 ### 6.2 認証モード
 
-| モード | 説明                                   | v0.1 |
+| モード | 説明                                   | v0.2 |
 | ------ | -------------------------------------- | ---- |
 | `mock` | 静的ユーザーまたはユーザー選択UIを利用 | 必須 |
 | `oidc` | 外部OIDC Providerへログイン            | 必須 |
@@ -629,7 +629,7 @@ identityProxy:
 
 #### 対応transform
 
-v0.1では意図的に機能を限定する。
+v0.2では意図的に機能を限定する。
 
 | transform | 動作                        |
 | --------- | --------------------------- |
@@ -724,7 +724,7 @@ incoming headers
 ```json
 {
   "status": "ok",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }
 ```
 
@@ -830,7 +830,7 @@ logging:
   format: json
 ```
 
-`logging.format: pretty` は設定値として受け付けるが、v0.1の出力は常にPino JSONである。
+`logging.format: pretty` は設定値として受け付けるが、v0.2の出力は常にPino JSONである。
 
 ### 14.4 OIDC設定例
 
@@ -893,7 +893,7 @@ npx authveil start
 起動ログ：
 
 ```text
-AuthVeil v0.1.0
+AuthVeil v0.2.0
 Proxy:          http://127.0.0.1:3080
 Upstream:       http://127.0.0.1:8080/
 Mode:           mock
@@ -907,7 +907,7 @@ Development use only.
 
 ### 15.3 validate
 
-v0.1では設定スキーマと鍵を検査する。OIDC Discovery、claim mappingの検査と、`--check-upstream` 指定時のupstream接続確認は将来の候補とする。
+v0.2では設定スキーマと既存の鍵を検査する。鍵ファイルが存在しなくても作成しない。OIDC Discovery、claim mappingの検査と、`--check-upstream` 指定時のupstream接続確認は将来の候補とする。
 
 ---
 
@@ -1001,7 +1001,7 @@ Path=/
 Secure=false only on http://localhost
 ```
 
-v0.1はHTTPS listenerを持たないため、`Secure` は `auth.cookie.secure` で明示的に有効にする。remote bindで平文HTTPを使用する場合はOIDCモードの起動を拒否する。
+v0.2はHTTPS listenerを持たないため、`Secure` は `auth.cookie.secure` で明示的に有効にする。remote bindで平文HTTPを使用する場合はOIDCモードの起動を拒否する。
 
 ### 17.4 セッション保存
 
@@ -1024,7 +1024,7 @@ interface SessionRecord {
 
 ### 17.5 鍵
 
-- アルゴリズムはv0.1ではES256のみ
+- アルゴリズムはv0.2ではES256のみ
 - ephemeral鍵は起動ごとに変更される
 - 安定したテストには `privateKeyFile` による永続鍵を使用する
 - `privateKey` と `privateKeyFile` は同時に指定できない
@@ -1139,7 +1139,7 @@ X-AuthVeil-Request-Id: 01J...
 
 ### 19.3 メトリクス
 
-v0.1ではPrometheus endpointを実装しない。debugログとベンチマークを優先する。将来追加する場合もデフォルト無効とする。
+v0.2ではPrometheus endpointを実装しない。debugログとベンチマークを優先する。将来追加する場合もデフォルト無効とする。
 
 ### 19.4 Telemetry
 
@@ -1196,13 +1196,14 @@ ETag: "<keyset fingerprint>"
 authveil/
 ├─ src/
 │  ├─ index.ts          # authveil
-│  ├─ cli.ts            # CLI entry point
+│  ├─ cli.ts            # CLI entry point（signal、exit code）
+│  ├─ cli/              # CLIコマンドの実装
 │  ├─ testkit.ts        # authveil/testkit
 │  ├─ config/           # YAML読み込み、環境変数展開、スキーマ検証
 │  ├─ core/             # 公開型、version
 │  ├─ identity/         # ProxyIdentity、mock、OIDC、session
 │  ├─ keys/             # ES256 key store
-│  ├─ proxy/            # Identity proxy adapter
+│  ├─ proxy/            # Identity proxy adapter、署名済みtoken cache
 │  └─ server/           # HTTP server、control route、転送ヘッダー
 ├─ test/
 ├─ docs/
@@ -1320,7 +1321,7 @@ WebSocket/SSE E2Eは最低限UbuntuとWindowsで実施する。
 docker run --rm --init \
   -p 127.0.0.1:3080:3080 \
   -v "$PWD/authveil.config.yaml:/app/authveil.config.yaml:ro" \
-  ghcr.io/tilfin/authveil:0.1.0
+  ghcr.io/tilfin/authveil:0.2.0
 ```
 
 コンテナでは `0.0.0.0` bindが必要になる。ホスト側公開先は利用者が `127.0.0.1:3080:3080` として制限できる例を優先する。
@@ -1339,7 +1340,7 @@ docker run --rm --init \
 
 ## 24. リリース計画
 
-### 24.1 v0.1.0
+### 24.1 v0.1.0（リリース済み）
 
 必須：
 
@@ -1358,14 +1359,32 @@ docker run --rm --init \
 - Docker image
 - セキュリティ文書
 
-### 24.2 v0.2.0候補
+### 24.2 v0.2.0
+
+v0.1.0の機能範囲を維持し、設計との差異の解消と堅牢化を行う。
+
+- 設定読み込み時の検証強化（duration、control prefix、mapping先ヘッダー名、SameSite=None、mock user ID重複、OIDC URL）
+- YAML解析後の環境変数展開
+- 生成identityヘッダーの上限超過時の `431`、upstream timeout時の `504`
+- SSE・WebSocketを含むgraceful shutdown
+- `returnTo`、control route、Cookie、WebSocket Upgradeの堅牢化
+- HTTP issuerのOIDC Providerへの対応と、ID token固有claimの除外
+- 署名済みtoken cacheの上限と再利用
+- ALBのIPv6 Host正規化と `X-Forwarded-Port` の修正
+- 固定mock userでの `/me`、`/debug/headers`
+- CLI `keys generate` の既定パス、`validate` の副作用除去
+- `verify` モードを非目的へ移動（ADR-009）
+
+### 24.3 将来の候補
 
 - 複数upstreamのpath routing
 - 鍵rotationシナリオ
 - 追加claim transform
 - プログラム可能Adapter API
+- テスト用不正トークン生成のALB・CLI・testkitへの拡張（FR-KEY-007。v0.2ではIAPの `SECURE_TOKEN_TEST` のみ）
+- `validate` でのOIDC Discovery、claim mapping、upstream接続の検査
 
-### 24.3 v1.0条件
+### 24.4 v1.0条件
 
 - 公開APIの安定化
 - 設定version migration方針
@@ -1484,13 +1503,13 @@ await proxy.web(request, response, { headers });
 
 ### ADR-005: 固定upstream
 
-**決定**：v0.1は1つの固定upstreamのみ扱う。
+**決定**：v0.2は1つの固定upstreamのみ扱う。
 
 **理由**：Open Proxy化とSSRFリスクを抑え、製品責務を認証境界の再現に集中させるため。
 
 ### ADR-006: ES256のみ
 
-**決定**：v0.1の署名アルゴリズムはES256のみ。
+**決定**：v0.2の署名アルゴリズムはES256のみ。
 
 **理由**：ALBとIAPの署名形式に合わせ、テスト対象を限定するため。
 
