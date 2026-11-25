@@ -4,13 +4,15 @@
 
 各 AuthVeil プロファイルの受け取り方を示す、実行可能な upstream アプリケーションです。すべての server が `GET /user` を公開し、AuthVeil 経由でアクセスします。
 
-リポジトリのルートで AuthVeil を build し、サンプルの依存関係をインストールします。
+サンプルは pnpm workspace に含まれ、ローカルの AuthVeil package を link します。リポジトリのルートで依存関係をインストールして AuthVeil を build し、examples ディレクトリへ移動します。
 
 ```bash
+pnpm install
 pnpm build
 cd examples
-pnpm install
 ```
+
+そこで `pnpm test` を実行すると、起動した AuthVeil に対して全サンプルを検証できます。CI でも同じテストを実行します。
 
 アプリケーションと対応する proxy を別々の terminal で実行します。
 

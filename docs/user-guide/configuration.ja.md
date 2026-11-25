@@ -59,7 +59,7 @@ auth:
 | `upstream.url`            | HTTP(S) URL | 必須         | リクエストの転送先として固定する origin。                |
 | `upstream.requestTimeout` | duration    | `0`          | upstream の timeout。`0` は無効です。                    |
 
-`server.controlPrefix` の末尾 `/` は削除されます。OIDC モードでは loopback アドレス以外を指定できません。
+`server.controlPrefix` には `/_authveil` のように 1 つ以上の path segment が必要で、`/` は指定できません。末尾の `/` は削除されます。OIDC モードでは loopback アドレス以外を指定できません。
 
 ## プロファイルの選択
 
@@ -120,4 +120,4 @@ docker run --rm \
 | `logging.level`  | `trace` \| `debug` \| `info` \| `warn` \| `error` \| `fatal` \| `silent` | `info` | 最小 log level。                                                        |
 | `logging.format` | `json` \| `pretty`                                                       | `json` | 出力形式の設定値。現在の runtime logging は Pino の JSON を使用します。 |
 
-duration はミリ秒の数値、または `ms`、`s`、`m`、`h`、`d` で終わる文字列で指定します。
+duration は 0 以上のミリ秒の数値、または `30s` のように整数の後に `ms`、`s`、`m`、`h`、`d` を付けた文字列で指定します。`auth.sessionTtl` と `identityProxy.tokenTtl` は 0 より大きい値が必要です。不正な duration は設定の読み込み時にエラーになります。

@@ -20,4 +20,4 @@ headers:
 | `json`             | any JSON value             | JSON-encoded text.                                          |
 | `prefix`           | string, number, or boolean | Text with `prefix` prepended; the prefix defaults to empty. |
 
-A missing or `null` claim omits the header. A value of the wrong type fails that request instead of silently changing its shape. Header names are case-insensitive; AuthVeil removes incoming values for every mapped name before adding trusted values.
+A missing or `null` claim omits the header. A value of the wrong type fails that request instead of silently changing its shape. Header names are case-insensitive and must be valid HTTP field names; AuthVeil removes incoming values for every mapped name before adding trusted values. Headers that AuthVeil sets or that control message framing (`Host`, `Connection`, `Upgrade`, `Content-Length`, `Transfer-Encoding`, `Forwarded`, `X-Forwarded-*`, and `X-AuthVeil-Request-Id`) cannot be mapped.

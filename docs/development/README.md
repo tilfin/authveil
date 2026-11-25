@@ -31,6 +31,8 @@ await authveil.listen({ port: 3080 });
 
 The object shape matches the YAML configuration documented in the [configuration reference](../user-guide/configuration.md).
 
+`close()` stops accepting connections and waits up to two seconds for in-flight requests. Connections that are still open after that, such as SSE streams and WebSockets, are closed. Calling `close()` again returns the same promise.
+
 ## Test utilities and examples
 
 - [Testkit](./testkit.md) — start AuthVeil and an echo upstream on free ports in integration tests

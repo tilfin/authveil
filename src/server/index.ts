@@ -26,6 +26,9 @@ import type {
 } from "../core/types.js";
 import { identityFromMock } from "../identity/identity.js";
 
+/** Time allowed for in-flight requests, SSE streams, and WebSockets to finish on close. */
+const SHUTDOWN_GRACE_MS = 2_000;
+
 export class AuthVeilServer implements AuthVeil {
   readonly #server: http.Server;
   readonly #proxyEngine = createProxyServer();
@@ -33,6 +36,7 @@ export class AuthVeilServer implements AuthVeil {
   readonly #sessions: SessionStore;
   readonly #adapter: IdentityProxyAdapter;
   readonly #externalOrigins = new WeakMap<IncomingMessage, ExternalOrigin>();
+  readonly #upgradedSockets = new Set<import("node:stream").Duplex>();
   readonly #fixedMockIdentity?: ProxyIdentity;
   #control: ControlRoutes;
   #oidc?: OidcAuthenticator;
@@ -68,6 +72,7 @@ export class AuthVeilServer implements AuthVeil {
       keys,
       sessions: this.#sessions,
       adapter: this.#adapter,
+      ...(this.#fixedMockIdentity ? { fixedIdentity: this.#fixedMockIdentity } : {}),
       getSession: (request) => this.#session(request),
       oidcBase: () => this.#oidcBase(),
     });
@@ -85,6 +90,14 @@ export class AuthVeilServer implements AuthVeil {
       const timeout = this.config.upstream.requestTimeout;
       if (timeout > 0)
         proxyRequest.setTimeout(timeout, () => proxyRequest.destroy(upstreamTimeoutError()));
+    });
+    // httpxy only ends the upstream WebSocket when the client socket ends or errors;
+    // close it as well when the client socket is destroyed, e.g. during shutdown.
+    this.#proxyEngine.on("proxyReqWs", (proxyRequest, _request, socket) => {
+      proxyRequest.once("upgrade", (_response, proxySocket: import("node:net").Socket) => {
+        if (socket.destroyed) proxySocket.destroy();
+        else socket.once("close", () => proxySocket.destroy());
+      });
     });
     this.#proxyEngine.on("proxyRes", (proxyResponse, request) => {
       const origin = this.#externalOrigins.get(request);
@@ -155,7 +168,18 @@ export class AuthVeilServer implements AuthVeil {
         resolve();
         return;
       }
-      this.#server.close((error) => (error ? reject(error) : resolve()));
+      // Long-lived SSE responses and WebSockets never finish on their own, so
+      // stop waiting for them once the grace period has passed.
+      const forceClose = setTimeout(() => {
+        this.#server.closeAllConnections();
+        for (const socket of this.#upgradedSockets) socket.destroy();
+      }, SHUTDOWN_GRACE_MS);
+      forceClose.unref();
+      this.#server.close((error) => {
+        clearTimeout(forceClose);
+        if (error) reject(error);
+        else resolve();
+      });
       this.#server.closeIdleConnections();
     });
     return this.#closing;
@@ -361,6 +385,8 @@ export class AuthVeilServer implements AuthVeil {
     socket: import("node:stream").Duplex,
     head: Buffer,
   ): Promise<void> {
+    this.#upgradedSockets.add(socket);
+    socket.once("close", () => this.#upgradedSockets.delete(socket));
     try {
       if (this.#isControlPath(new URL(request.url ?? "/", "http://authveil.local"))) {
         socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");

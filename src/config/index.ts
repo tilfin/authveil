@@ -25,6 +25,40 @@ export function expandEnvironment(input: string, env: NodeJS.ProcessEnv = proces
   });
 }
 
+/** Non-negative milliseconds, or a string such as `30s`. */
+const durationSchema = {
+  oneOf: [
+    { type: "number", minimum: 0 },
+    { type: "string", pattern: "^\\d+(ms|s|m|h|d)$" },
+  ],
+} as const;
+
+/** A positive duration, for lifetimes where zero would expire immediately. */
+const positiveDurationSchema = {
+  oneOf: [
+    { type: "number", exclusiveMinimum: 0 },
+    { type: "string", pattern: "^0*[1-9]\\d*(ms|s|m|h|d)$" },
+  ],
+} as const;
+
+/** RFC 9110 field-name token. */
+const HEADER_NAME_PATTERN = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$";
+
+/** Request headers that AuthVeil sets itself or that control message framing. */
+const UNMAPPABLE_HEADERS = new Set([
+  "host",
+  "connection",
+  "upgrade",
+  "content-length",
+  "transfer-encoding",
+  "forwarded",
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-forwarded-port",
+  "x-authveil-request-id",
+]);
+
 const schema = {
   type: "object",
   additionalProperties: false,
@@ -36,7 +70,7 @@ const schema = {
       properties: {
         host: { type: "string" },
         port: { type: "integer", minimum: 0, maximum: 65535 },
-        controlPrefix: { type: "string", pattern: "^/" },
+        controlPrefix: { type: "string", pattern: "^(/[^/?#\\s]+)+/?$" },
       },
     },
     upstream: {
@@ -45,7 +79,7 @@ const schema = {
       required: ["url"],
       properties: {
         url: { type: "string" },
-        requestTimeout: { type: ["string", "number"] },
+        requestTimeout: durationSchema,
       },
     },
     auth: {
@@ -54,7 +88,7 @@ const schema = {
       properties: {
         mode: { enum: ["mock", "oidc"] },
         mockUser: { type: "string", minLength: 1 },
-        sessionTtl: { type: ["string", "number"] },
+        sessionTtl: positiveDurationSchema,
         cookie: {
           type: "object",
           additionalProperties: false,
@@ -112,13 +146,14 @@ const schema = {
         albArn: { type: "string" },
         issuer: { type: "string" },
         clientId: { type: "string" },
-        tokenTtl: { type: ["string", "number"] },
+        tokenTtl: positiveDurationSchema,
         audience: { type: "string" },
         hostRewrite: { type: "string" },
         identityNamespace: { type: "string" },
         translateUrlsInHeaders: { type: "boolean" },
         headers: {
           type: "object",
+          propertyNames: { pattern: HEADER_NAME_PATTERN },
           additionalProperties: {
             type: "object",
             additionalProperties: false,
@@ -156,9 +191,9 @@ const schema = {
 } as const;
 
 export function resolveConfig(input: AuthVeilOptions): ResolvedConfig {
-  if ("output" in (input as object))
-    throw new ConfigError("output has been renamed to identityProxy");
-  if ("changeOrigin" in (input.upstream as object))
+  if (!isRecord(input)) throw new ConfigError("Configuration must be a mapping");
+  if ("output" in input) throw new ConfigError("output has been renamed to identityProxy");
+  if (isRecord(input.upstream) && "changeOrigin" in input.upstream)
     throw new ConfigError(
       "upstream.changeOrigin has been removed; configure Host behavior in identityProxy",
     );
@@ -187,9 +222,20 @@ export function resolveConfig(input: AuthVeilOptions): ResolvedConfig {
     throw new ConfigError("auth.oidc is required in oidc mode");
   if (mode !== "mock" && (input.auth?.mockUser || input.mockUsers?.length))
     throw new ConfigError("auth.mockUser and mockUsers are only supported in mock mode");
+  const duplicateMockUser = input.mockUsers?.find(
+    (user, index) => input.mockUsers!.findIndex((other) => other.id === user.id) !== index,
+  );
+  if (duplicateMockUser)
+    throw new ConfigError(`mockUsers contains duplicate id ${duplicateMockUser.id}`);
   const mockUser = input.auth?.mockUser;
   if (mockUser && !input.mockUsers?.some((user) => user.id === mockUser))
     throw new ConfigError("auth.mockUser must reference an entry in mockUsers");
+  if (input.auth?.oidc) {
+    assertHttpUrl(input.auth.oidc.issuer, "auth.oidc.issuer");
+    assertHttpUrl(input.auth.oidc.redirectUri, "auth.oidc.redirectUri");
+  }
+  if (input.auth?.cookie?.sameSite === "none" && input.auth.cookie.secure !== true)
+    throw new ConfigError("auth.cookie.sameSite none requires auth.cookie.secure: true");
   if (mode === "oidc" && !["127.0.0.1", "::1", "localhost"].includes(host))
     throw new ConfigError("Remote OIDC bind requires HTTPS, which is not configured");
   const identityProxy = input.identityProxy ?? { type: "none" };
@@ -214,6 +260,12 @@ export function resolveConfig(input: AuthVeilOptions): ResolvedConfig {
     !identityProxy.headers
   )
     throw new ConfigError("identityProxy.headers is required for mapped identity proxies");
+  if ("headers" in identityProxy) {
+    const managed = Object.keys(identityProxy.headers).find((name) =>
+      UNMAPPABLE_HEADERS.has(name.toLowerCase()),
+    );
+    if (managed) throw new ConfigError(`identityProxy.headers.${managed} is managed by AuthVeil`);
+  }
   if (input.keys?.privateKey && input.keys.privateKeyFile)
     throw new ConfigError("keys.privateKey and keys.privateKeyFile cannot be used together");
 
@@ -345,4 +397,19 @@ function plainScalarValue(value: string): string | number | boolean {
     // Not a scalar YAML value; keep the text.
   }
   return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertHttpUrl(value: string, path: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigError(`${path} must be a valid URL`);
+  }
+  if (!["http:", "https:"].includes(url.protocol))
+    throw new ConfigError(`${path} must use http or https`);
 }
